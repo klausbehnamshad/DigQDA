@@ -1,0 +1,32 @@
+[
+  {
+    "unit_id": "S01",
+    "source_range": "00:00:01,000 --> 00:00:04,500",
+    "explicit_speaker": "not stated",
+    "descriptive_codes": [
+      {"code_label": "schwieriger Anfang", "status": "INDUCTIVE_CANDIDATE",
+       "source_quote": "am Anfang war das für mich schwierig",
+       "quote_locator": "00:00:01,000 --> 00:00:04,500"}
+    ]
+  },
+  {
+    "unit_id": "S02",
+    "source_range": "00:00:04,600 --> 00:00:08,200",
+    "explicit_speaker": "not stated",
+    "descriptive_codes": [
+      {"code_label": "Kontakt über Kurs", "status": "INDUCTIVE_CANDIDATE",
+       "source_quote": "habe ich langsam Leute kennen gelernt",
+       "quote_locator": "00:00:04,600 --> 00:00:08,200"}
+    ]
+  },
+  {
+    "unit_id": "S03",
+    "source_range": "00:00:08,300 --> 00:00:12,000",
+    "explicit_speaker": "not stated",
+    "descriptive_codes": [
+      {"code_label": "Rückkehrwunsch", "status": "INDUCTIVE_CANDIDATE",
+       "source_quote": "ich möchte irgendwann wieder zurückkehren",
+       "quote_locator": "00:05:00,000 --> 00:05:03,000"}
+    ]
+  }
+]

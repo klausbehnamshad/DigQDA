@@ -1,0 +1,16 @@
+{
+  "concise_description": "Familie ist noch in Damaskus; eine Belastung wird ausdrücklich benannt.",
+  "narrative_function": "EVALUATION",
+  "coding_decision": "CODES_ASSIGNED",
+  "descriptive_codes": [
+    {"code_label": "Familie in Damaskus",
+     "definition": "Familie wird als weiterhin in Damaskus befindlich beschrieben",
+     "status": "INDUCTIVE_CANDIDATE",
+     "source_quote": "Meine Familie ist noch in Damaskus"},
+    {"code_label": "benannte Belastung",
+     "definition": "eine Belastung wird ausdrücklich benannt",
+     "status": "INDUCTIVE_CANDIDATE",
+     "source_quote": "das belastet mich sehr"}
+  ],
+  "uncertainty": []
+}
