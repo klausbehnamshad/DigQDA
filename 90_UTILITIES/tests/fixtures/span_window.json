@@ -1,0 +1,13 @@
+[
+  {
+    "unit_id": "S01",
+    "source_range": "00:00:01,000 --> 00:00:12,000",
+    "coding_decision": "CODES_ASSIGNED",
+    "descriptive_codes": [
+      {"code_label": "Familie in Damaskus", "status": "INDUCTIVE_CANDIDATE",
+       "source_quote": "Meine Familie ist noch in Damaskus",
+       "quote_locator": "00:00:01,000 --> 00:00:12,000"}
+    ],
+    "uncertainty": []
+  }
+]

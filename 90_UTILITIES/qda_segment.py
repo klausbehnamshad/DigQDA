@@ -85,18 +85,20 @@ def ms_to_tc(ms):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def parse_srt(raw):
+def parse_srt(raw, force_srt=False):
     """Strikte SRT-Analyse (P0-06).
 
     Rueckgabe: (cues, problems, srt_intended).
-    - srt_intended = mindestens ein Block enthaelt "-->".
+    - srt_intended = force_srt (Dateiendung .srt) ODER mindestens ein Block "-->".
     - Ist SRT beabsichtigt, muss JEDER nicht-leere Block genau eine gueltige
       Timecode-Zeile ergeben; start<=ende; eindeutige Indizes; monoton steigende
       Startzeiten. Jede Abweichung -> problems (kein stilles Verwerfen).
     """
     cues, problems = [], []
     blocks = [b for b in re.split(r"\n\s*\n", raw.strip()) if b.strip() != ""]
-    srt_intended = any("-->" in b for b in blocks)
+    # SRT-Absicht: Dateiendung .srt ODER Vorkommen von "-->" (P0-06: die deklarierte
+    # Endung erzwingt strikte Validierung, damit ein kaputter Pfeil nicht als TXT durchrutscht).
+    srt_intended = force_srt or any("-->" in b for b in blocks)
     if not srt_intended:
         return [], [], False
 
@@ -231,7 +233,8 @@ def main():
     sha = hashlib.sha256(raw_bytes).hexdigest()
     raw = unicodedata.normalize("NFC", raw_bytes.decode("utf-8"))
 
-    cues, problems, srt_intended = parse_srt(raw)
+    declared_srt = args.source.lower().endswith(".srt")
+    cues, problems, srt_intended = parse_srt(raw, force_srt=declared_srt)
     if srt_intended:
         # Fail-closed (P0-06): keine still verworfenen Bloecke, kein Output.
         if problems:

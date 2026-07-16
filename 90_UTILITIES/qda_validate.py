@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-QDA-UTIL-QUOTE-LOCATOR-VALIDATION  (v0.3, DRAFT)
+QDA-UTIL-QUOTE-LOCATOR-VALIDATION  (v0.4, DRAFT)
 
-Externer, deterministischer Validator. Leitsatz: Modell schlaegt vor, Code verifiziert.
-Prueft mechanische Treue (Zitat zeichengetreu IN der behaupteten Einheit? Locator gueltig?),
-nicht analytische Guete.
+Externer, deterministischer Validator. Modell schlaegt vor, Code verifiziert.
 
-v0.3 schliesst Fail-closed-Luecken (Senior-Review P0-01/02/05):
-- Verdikte getrennt: PASS | REVIEW_REQUIRED | NO_EVIDENCE | INVALID_INPUT.
-- Null Evidenz ist nur bei EXPLIZIT gebundenem NOTHING_CODABLE/NO_CODE_FITS zulaessig
-  (-> NO_EVIDENCE, nicht PASS); sonst INVALID_INPUT.
-- Fehlende/ungueltige Einheitsbindung faellt NICHT mehr still auf Dokumentebene
-  zurueck: -> UNBOUND, kein PASS. Dokumentweite Pruefung nur mit --document-mode.
-- Blosse Timecode-UEBERLAPPUNG ist kein gueltiger Locator mehr (OVERLAP -> REVIEW).
-- Exit: PASS=0, REVIEW_REQUIRED/NO_EVIDENCE=1, INVALID_INPUT=2.
+v0.4 schliesst weitere Adversarial-Luecken:
+- Evidenz NUR aus dem kanonischen Pfad descriptive_codes[].source_quote; fremde
+  Felder (z.B. fake_quote) sind keine Evidenz mehr, und Einheiten mit fremder
+  Struktur -> INVALID_INPUT (strenge Unit-Form).
+- Platzhalter-source_quote (z.B. "not stated") bei einem Code ist NICHT unsichtbar,
+  sondern MISSING_EVIDENCE -> kein PASS (fail-closed).
+- Mehr-Cue-Fenster (Standard-P0-Output) sind gueltige SPAN-Locatoren, nicht OVERLAP.
+- Leeres Ergebnis ist nur bei GEBUNDENEM NOTHING_CODABLE/NO_CODE_FITS NO_EVIDENCE;
+  unbindbar leer -> INVALID_INPUT.
 
+Verdikte: PASS | REVIEW_REQUIRED | NO_EVIDENCE | INVALID_INPUT.
+Exit: PASS=0, REVIEW_REQUIRED/NO_EVIDENCE=1, INVALID_INPUT=2.
 Abhaengigkeit: rapidfuzz
 """
 
@@ -35,13 +36,14 @@ except ImportError:
     sys.stderr.write("FEHLER: rapidfuzz fehlt. -> pip install rapidfuzz\n")
     sys.exit(2)
 
-VALIDATOR_VERSION = "0.3"
+VALIDATOR_VERSION = "0.4"
 
-QUOTE_KEY_HINT = "quote"
-LOCATOR_KEYS = {"quote_locator", "locator", "timecode"}
 UNIT_RANGE_KEYS = ("source_range", "source_range_unverified")
 EMPTY_DECISIONS = {"NOTHING_CODABLE", "NO_CODE_FITS"}
-VALID_LOC = {"EXACT", "WITHIN", "PRESENT"}
+VALID_DECISIONS = {"CODES_ASSIGNED", "NO_CODE_FITS", "NOTHING_CODABLE"}
+VALID_LOC = {"EXACT", "WITHIN", "SPAN", "PRESENT"}
+ALLOWED_CODE_KEYS = {"code_label", "definition", "status", "source_quote",
+                     "quote_locator", "source_quote_match", "quote_locator_match"}
 PLACEHOLDERS = {"", "not stated", "unclear", "none", "n/a", "na", "not applicable",
                 "not requested", "none warranted", "locator unavailable",
                 "speaker not identified", "keine", "nicht genannt", "unklar"}
@@ -63,9 +65,7 @@ def atomic_write(path, text):
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-            f.flush()
-            os.fsync(f.fileno())
+            f.write(text); f.flush(); os.fsync(f.fileno())
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
@@ -116,7 +116,7 @@ def unit_haystack(source_range, src):
 def check_quote(quote, unit_hay, doc_hay, threshold, document_mode):
     q = normalize(quote)
     if q == "":
-        return {"result": "SKIPPED", "reason": "leeres Zitat"}
+        return {"result": "MISSING_EVIDENCE", "reason": "leeres Zitat"}
     if unit_hay is None:
         if not document_mode:
             return {"result": "UNBOUND", "reason": "keine gueltige Einheitsbindung"}
@@ -161,17 +161,44 @@ def check_locator(loc, src):
         return {"result": "NOT_FOUND"}
     times = [tc(*x) for x in t]
     lo, hi = min(times), max(times)
-    for c in cues:
+    for c in cues:  # exakte Grenze eines einzelnen Cues
         if c["start_ms"] == lo and c["end_ms"] == hi:
             return {"result": "EXACT", "cue_index": c["index"]}
-    for c in cues:
+    for c in cues:  # vollstaendig innerhalb eines Cues
         if lo >= c["start_ms"] and hi <= c["end_ms"]:
             return {"result": "WITHIN", "cue_index": c["index"]}
-    for c in cues:  # blosse Ueberlappung ist KEIN gueltiger Locator (P0-05)
+    # SPAN: zusammenhaengendes Mehr-Cue-Fenster (Standard-P0-Output)
+    if lo in {c["start_ms"] for c in cues} and hi in {c["end_ms"] for c in cues}:
+        seq = sorted((c for c in cues if c["start_ms"] >= lo and c["end_ms"] <= hi),
+                     key=lambda c: c["start_ms"])
+        if seq and seq[0]["start_ms"] == lo and seq[-1]["end_ms"] == hi:
+            return {"result": "SPAN", "cues": [c["index"] for c in seq]}
+    for c in cues:  # bloss ueberlappend -> KEIN gueltiger Locator
         if lo <= c["end_ms"] and hi >= c["start_ms"]:
             return {"result": "OVERLAP", "cue_index": c["index"],
-                    "reason": "Range nicht vollstaendig von einem Cue gedeckt"}
+                    "reason": "Range nicht durch Cue(s) exakt gedeckt"}
     return {"result": "NOT_FOUND"}
+
+
+def valid_unit_shape(u, document_mode):
+    """Strenge P1-Bound-Result-Form (schliesst fremde Payloads aus)."""
+    if not isinstance(u, dict):
+        return False
+    if not isinstance(u.get("descriptive_codes"), list):
+        return False
+    if u.get("coding_decision") not in VALID_DECISIONS:
+        return False
+    if not document_mode and not isinstance(u.get("source_range"), str):
+        return False
+    for k in u:  # keine fremden Evidenz-Felder auf Unit-Ebene
+        if "quote" in k.lower():
+            return False
+    for c in u["descriptive_codes"]:
+        if not isinstance(c, dict) or "source_quote" not in c:
+            return False
+        if any(k not in ALLOWED_CODE_KEYS for k in c):
+            return False
+    return True
 
 
 def extract_units(data):
@@ -187,75 +214,55 @@ def extract_units(data):
 
 
 def collect_from_unit(unit, unit_hay, src, threshold, document_mode, findings):
-    """Sucht Zitat-/Locatorfelder in genau EINER Einheit; nutzt deren unit_hay."""
     seg = unit.get("unit_id") or unit.get("segment_id")
-
-    def rec(node, code):
-        if isinstance(node, dict):
-            code = node.get("code_label", code)
-            for key, val in list(node.items()):
-                if QUOTE_KEY_HINT in key.lower() and isinstance(val, str) and "locator" not in key.lower():
-                    res = ({"result": "SKIPPED"} if is_placeholder(val)
-                           else check_quote(val, unit_hay, src["doc_hay"], threshold, document_mode))
-                    node[key + "_match"] = res
-                    if res["result"] in ("EXACT", "FUZZY", "WRONG_UNIT", "NOT_FOUND", "UNBOUND"):
-                        findings["quotes"].append({"segment_id": seg, "code_label": code,
-                                                   "value": val, **res})
-                if key in LOCATOR_KEYS and isinstance(val, str):
-                    res = check_locator(val, src)
-                    node[key + "_match"] = res
-                    if res["result"] in ("EXACT", "WITHIN", "OVERLAP", "PRESENT", "NOT_FOUND"):
-                        findings["locators"].append({"segment_id": seg, "value": val, **res})
-            for v in node.values():
-                rec(v, code)
-        elif isinstance(node, list):
-            for it in node:
-                rec(it, code)
-
-    # Unit-Range separat als Locator pruefen
     for rk in UNIT_RANGE_KEYS:
         if isinstance(unit.get(rk), str) and not is_placeholder(unit[rk]):
             res = check_locator(unit[rk], src)
             unit[rk + "_match"] = res
-            if res["result"] in ("EXACT", "WITHIN", "OVERLAP", "PRESENT", "NOT_FOUND"):
+            if res["result"] != "SKIPPED":
                 findings["locators"].append({"segment_id": seg, "value": unit[rk], **res})
             break
-    rec({k: v for k, v in unit.items() if k not in UNIT_RANGE_KEYS}, None)
+    for code in unit.get("descriptive_codes", []):
+        if not isinstance(code, dict):
+            continue
+        sq = code.get("source_quote")
+        if is_placeholder(sq):
+            res = {"result": "MISSING_EVIDENCE", "reason": "Platzhalter/leeres source_quote"}
+        else:
+            res = check_quote(sq, unit_hay, src["doc_hay"], threshold, document_mode)
+        code["source_quote_match"] = res
+        findings["quotes"].append({"segment_id": seg, "code_label": code.get("code_label"),
+                                   "value": sq, **res})
+        ql = code.get("quote_locator")
+        if isinstance(ql, str) and not is_placeholder(ql):
+            lres = check_locator(ql, src)
+            code["quote_locator_match"] = lres
+            if lres["result"] != "SKIPPED":
+                findings["locators"].append({"segment_id": seg, "value": ql, **lres})
 
 
 def build_report(findings, meta, verdict, reason):
     q = findings["quotes"]
-    n = len(q)
-    counts = {k: sum(1 for x in q if x["result"] == k)
-              for k in ("EXACT", "FUZZY", "WRONG_UNIT", "NOT_FOUND", "UNBOUND")}
+    cats = ("EXACT", "FUZZY", "WRONG_UNIT", "NOT_FOUND", "UNBOUND", "MISSING_EVIDENCE")
+    counts = {k: sum(1 for x in q if x["result"] == k) for k in cats}
     loc = findings["locators"]
     loc_bad = [x for x in loc if x["result"] not in VALID_LOC and x["result"] != "SKIPPED"]
-    L = [f"# QDA Quote-/Locator-Validierung — **{verdict}**\n",
-         f"> {reason}\n",
+    L = [f"# QDA Quote-/Locator-Validierung — **{verdict}**\n", f"> {reason}\n",
          f"- Quelle: `{meta['source_name']}` (SRT: {meta['is_srt']}, Cues: {meta['n_cues']})",
-         f"- Quelle-SHA256 (Originalbytes): `{meta['source_sha256'][:16]}…`",
-         f"- Validator v{VALIDATOR_VERSION} · {meta['timestamp']} · Fuzzy {meta['threshold']}"
-         f"{' · document-mode' if meta['document_mode'] else ''}\n",
-         "## Zitate\n", "| Ergebnis | Anzahl |", "|---|---|"]
-    for k in ("EXACT", "FUZZY", "WRONG_UNIT", "NOT_FOUND", "UNBOUND"):
+         f"- Quelle-SHA256: `{meta['source_sha256'][:16]}…` · Validator v{VALIDATOR_VERSION}"
+         f"{' · document-mode' if meta['document_mode'] else ''}\n", "## Zitate\n",
+         "| Ergebnis | Anzahl |", "|---|---|"]
+    for k in cats:
         L.append(f"| {k} | {counts[k]} |")
-    L.append(f"| **gesamt** | **{n}** |\n")
-    flagged = [x for x in q if x["result"] != "EXACT"]
-    if flagged:
-        L.append("## Zu pruefen (nicht EXACT)\n")
-        for x in flagged:
-            L.append(f"- **{x['result']}** · Einheit {x.get('segment_id','?')}"
-                     f"{' · ' + x['code_label'] if x.get('code_label') else ''}: „{x['value']}\"")
-    L.append("\n## Locatoren\n")
-    L.append(f"- geprueft: {len(loc)} · ungueltig (inkl. OVERLAP): {len(loc_bad)}")
+    L.append(f"| **gesamt** | **{len(q)}** |\n")
+    for x in (x for x in q if x["result"] != "EXACT"):
+        L.append(f"- **{x['result']}** · Einheit {x.get('segment_id','?')}: „{x['value']}\"")
+    L.append(f"\n## Locatoren\n- geprueft: {len(loc)} · ungueltig (inkl. OVERLAP): {len(loc_bad)}")
     for x in loc_bad:
         L.append(f"  - {x['result']} · Einheit {x.get('segment_id','?')} · `{x['value']}`")
-    return "\n".join(L), {
-        "verdict": verdict, "reason": reason, "quotes_total": n,
-        "quotes_exact": counts["EXACT"], "quotes_fuzzy": counts["FUZZY"],
-        "quotes_wrong_unit": counts["WRONG_UNIT"], "quotes_not_found": counts["NOT_FOUND"],
-        "quotes_unbound": counts["UNBOUND"],
-        "locators_total": len(loc), "locators_invalid": len(loc_bad)}
+    return "\n".join(L), {"verdict": verdict, "reason": reason, "quotes_total": len(q),
+                          **{f"quotes_{k.lower()}": counts[k] for k in cats},
+                          "locators_total": len(loc), "locators_invalid": len(loc_bad)}
 
 
 def main():
@@ -265,8 +272,7 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--report")
     ap.add_argument("--fuzzy-threshold", type=float, default=90.0)
-    ap.add_argument("--document-mode", action="store_true",
-                    help="Erlaubt (explizit!) dokumentweite Pruefung ohne Einheitsbindung.")
+    ap.add_argument("--document-mode", action="store_true")
     args = ap.parse_args()
 
     with open(args.source, "rb") as f:
@@ -290,39 +296,42 @@ def main():
     findings = {"quotes": [], "locators": []}
     verdict = reason = None
 
-    if units is None or not all(isinstance(u, dict) for u in units) or len(units) == 0:
-        verdict, reason = "INVALID_INPUT", "Kein erkennbares gebundenes P1-Ergebnis (Liste von Einheiten)."
+    if (units is None or len(units) == 0
+            or not all(valid_unit_shape(u, args.document_mode) for u in units)):
+        verdict, reason = "INVALID_INPUT", "Kein gueltiges gebundenes P1-Ergebnis (strenge Unit-Form verletzt)."
     else:
+        bindings = []
         for unit in units:
             uh = None
             for rk in UNIT_RANGE_KEYS:
                 if isinstance(unit.get(rk), str):
-                    uh = unit_haystack(unit[rk], src)
-                    break
+                    uh = unit_haystack(unit[rk], src); break
+            bindings.append(uh)
             collect_from_unit(unit, uh, src, args.fuzzy_threshold, args.document_mode, findings)
 
         q = findings["quotes"]
         loc_bad = [x for x in findings["locators"]
                    if x["result"] not in VALID_LOC and x["result"] != "SKIPPED"]
         if len(q) == 0:
-            legit_empty = all(u.get("coding_decision") in EMPTY_DECISIONS
-                              and not u.get("descriptive_codes") for u in units)
-            if legit_empty and not args.document_mode:
-                verdict, reason = "NO_EVIDENCE", "Gebundenes leeres Ergebnis (NOTHING_CODABLE/NO_CODE_FITS); nichts zu verifizieren, menschliche Bestaetigung noetig."
+            legit_empty = all(
+                u.get("coding_decision") in EMPTY_DECISIONS and not u.get("descriptive_codes")
+                and (args.document_mode or b is not None)
+                for u, b in zip(units, bindings))
+            if legit_empty:
+                verdict, reason = "NO_EVIDENCE", "Gebundenes leeres Ergebnis; nichts zu verifizieren, menschliche Bestaetigung noetig."
             else:
-                verdict, reason = "INVALID_INPUT", "Null Zitate, aber kein explizit gebundenes leeres Ergebnis."
+                verdict, reason = "INVALID_INPUT", "Null Zitate ohne gebundenes leeres Ergebnis."
         else:
             all_exact = all(x["result"] == "EXACT" for x in q)
             verdict = "PASS" if (all_exact and not loc_bad) else "REVIEW_REQUIRED"
             reason = ("Jedes Zitat zeichengetreu in seiner Einheit belegt, Locatoren gueltig."
                       if verdict == "PASS" else
-                      "Mind. ein Zitat ist FUZZY/WRONG_UNIT/NOT_FOUND/UNBOUND oder ein Locator ungueltig (inkl. OVERLAP).")
+                      "Mind. ein Zitat FUZZY/WRONG_UNIT/NOT_FOUND/UNBOUND/MISSING_EVIDENCE oder Locator ungueltig.")
 
     report_md, summary = build_report(findings, meta, verdict, reason)
     manifest = {"validator_id": "QDA-UTIL-QUOTE-LOCATOR-VALIDATION",
                 "validator_version": VALIDATOR_VERSION, "source_sha256": source_sha,
-                "document_mode": args.document_mode, "timestamp": meta["timestamp"],
-                "result": summary}
+                "document_mode": args.document_mode, "timestamp": meta["timestamp"], "result": summary}
     if args.out:
         atomic_write(args.out, json.dumps({"_qda_validation": manifest, "data": data},
                                           ensure_ascii=False, indent=2))
