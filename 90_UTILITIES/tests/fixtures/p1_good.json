@@ -1,16 +1,16 @@
 {
-  "concise_description": "Familie ist noch in Damaskus; eine Belastung wird ausdrücklich benannt.",
+  "concise_description": "Die eigenen Vasen sind am Ende gelungen; eine Freude wird ausdrücklich benannt.",
   "narrative_function": "EVALUATION",
   "coding_decision": "CODES_ASSIGNED",
   "descriptive_codes": [
-    {"code_label": "Familie in Damaskus",
-     "definition": "Familie wird als weiterhin in Damaskus befindlich beschrieben",
+    {"code_label": "gelungene Vasen",
+     "definition": "die eigenen Vasen werden als am Ende gelungen beschrieben",
      "status": "INDUCTIVE_CANDIDATE",
-     "source_quote": "Meine Familie ist noch in Damaskus"},
-    {"code_label": "benannte Belastung",
-     "definition": "eine Belastung wird ausdrücklich benannt",
+     "source_quote": "Meine Vasen sind am Ende richtig schön geworden"},
+    {"code_label": "benannte Freude",
+     "definition": "eine Freude wird ausdrücklich benannt",
      "status": "INDUCTIVE_CANDIDATE",
-     "source_quote": "das belastet mich sehr"}
+     "source_quote": "das hat mich sehr gefreut"}
   ],
   "uncertainty": []
 }

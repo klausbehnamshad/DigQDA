@@ -193,7 +193,7 @@ def build_prompt(template, rq, mode, allowed_labels, defs, unit):
     else:
         example_label = example_definition = None
         example_source = (
-            "Meine Familie ist noch in Damaskus, das belastet mich sehr."
+            "Meine Vasen sind am Ende richtig schön geworden, das hat mich sehr gefreut."
         )
 
     def render_example(match):

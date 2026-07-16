@@ -12,7 +12,7 @@ EINSTELLUNGEN
 REGELN
 1. Bleib am manifesten Inhalt (beschrieben, getan, erlebt, berichtet, verglichen, bewertet, erinnert).
 2. Führe nichts Verstecktes ein: keine latente Bedeutung, keine Psyche, keine Identität/Resilienz/Trauma/Macht.
-3. Ein code_label paraphrasiert knapp; kein Ort/keine Kategorie/kein Begriff, der nicht im Text steht (aus "Damaskus" wird NICHT "Herkunftsland").
+3. Ein code_label paraphrasiert knapp; kein Ort/keine Kategorie/kein Begriff, der nicht im Text steht (aus "Töpferkurs" wird NICHT "Bildungsmaßnahme").
 4. Kopiere pro Code eine kurze source_quote als zusammenhängenden Teilstring
    ZEICHENGETREU aus der Einheit. Groß-/Kleinschreibung und Satzzeichen bleiben
    unverändert.
@@ -39,21 +39,21 @@ Quelleinheit: unit_id: EXAMPLE, text: [[EXAMPLE_SOURCE]]
 Ausgabe:
 [[OPEN_EXAMPLE]]
 {
-  "concise_description": "Familie ist noch in Damaskus; eine Belastung wird ausdrücklich benannt.",
+  "concise_description": "Die eigenen Vasen sind am Ende gelungen; eine Freude wird ausdrücklich benannt.",
   "narrative_function": "EVALUATION",
   "coding_decision": "CODES_ASSIGNED",
   "descriptive_codes": [
     {
-      "code_label": "Familie in Damaskus",
-      "definition": "Familie wird als weiterhin in Damaskus befindlich beschrieben",
+      "code_label": "gelungene Vasen",
+      "definition": "die eigenen Vasen werden als am Ende gelungen beschrieben",
       "status": "INDUCTIVE_CANDIDATE",
-      "source_quote": "Meine Familie ist noch in Damaskus"
+      "source_quote": "Meine Vasen sind am Ende richtig schön geworden"
     },
     {
-      "code_label": "benannte Belastung",
-      "definition": "eine Belastung wird ausdrücklich benannt",
+      "code_label": "benannte Freude",
+      "definition": "eine Freude wird ausdrücklich benannt",
       "status": "INDUCTIVE_CANDIDATE",
-      "source_quote": "das belastet mich sehr"
+      "source_quote": "das hat mich sehr gefreut"
     }
   ],
   "uncertainty": []

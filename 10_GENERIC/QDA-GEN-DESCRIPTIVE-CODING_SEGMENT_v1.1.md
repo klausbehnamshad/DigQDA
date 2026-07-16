@@ -26,7 +26,7 @@ SUPERSEDES: v1.0-DRAFT (nie pilotiert) — Outputvertrag geändert
 CHANGELOG ggü. v1.0-DRAFT
 - Hauptregel korrigiert: nur source_quote ist zeichengetreu; code_label/definition
   dürfen knapp paraphrasieren, aber nichts hinzufügen.
-- Worked Example korrigiert (kein "Herkunftsland" für "Damaskus").
+- Worked Example korrigiert (kein "Bildungsmaßnahme" für "Töpferkurs").
 - Schlanker Modelloutput: unit_id, source_range, explicit_speaker, quote_locator
   und level2 werden NICHT mehr vom Modell erzeugt — der Orchestrator bindet sie.
 - Neues Feld coding_decision; kein Pseudo-Code "kein Codebuch-Code passt" mehr.
@@ -101,8 +101,8 @@ REGELN
 2. Führe nichts Verstecktes ein: keine latente Bedeutung, keine Psyche, keine
    Identität/Resilienz/Trauma/Macht — außer der Text benennt es ausdrücklich.
 3. Ein code_label paraphrasiert knapp; es darf keinen Ort, keine Kategorie und
-   keinen Begriff einführen, der nicht im Text steht. (Beispiel: aus "Damaskus"
-   wird NICHT "Herkunftsland".)
+   keinen Begriff einführen, der nicht im Text steht. (Beispiel: aus "Töpferkurs"
+   wird NICHT "Bildungsmaßnahme".)
 4. Kopiere pro Code eine kurze source_quote ZEICHENGETREU aus der Einheit.
 5. Ton, Pause, Ironie, Emotion, Prosodie NICHT erschließen — ein Transkript ist
    nicht das Audio-Ereignis.
@@ -133,21 +133,21 @@ explicit_speaker oder quote_locator — die bindet der Orchestrator.
 BEISPIEL (Eingabe → korrekte Ausgabe)
 Quelleinheit:
   unit_id: S03
-  text: "Meine Familie ist noch in Damaskus, das belastet mich sehr."
+  text: "Meine Vasen sind am Ende richtig schön geworden, das hat mich sehr gefreut."
 Ausgabe:
 {
-  "concise_description": "Familie ist noch in Damaskus; eine Belastung wird ausdrücklich benannt.",
+  "concise_description": "Die eigenen Vasen sind am Ende gelungen; eine Freude wird ausdrücklich benannt.",
   "narrative_function": "EVALUATION",
   "coding_decision": "CODES_ASSIGNED",
   "descriptive_codes": [
-    {"code_label": "Familie in Damaskus",
-     "definition": "Familie wird als weiterhin in Damaskus befindlich beschrieben",
+    {"code_label": "gelungene Vasen",
+     "definition": "die eigenen Vasen werden als am Ende gelungen beschrieben",
      "status": "INDUCTIVE_CANDIDATE",
-     "source_quote": "Meine Familie ist noch in Damaskus"},
-    {"code_label": "benannte Belastung",
-     "definition": "eine Belastung wird ausdrücklich benannt",
+     "source_quote": "Meine Vasen sind am Ende richtig schön geworden"},
+    {"code_label": "benannte Freude",
+     "definition": "eine Freude wird ausdrücklich benannt",
      "status": "INDUCTIVE_CANDIDATE",
-     "source_quote": "das belastet mich sehr"}
+     "source_quote": "das hat mich sehr gefreut"}
   ],
   "uncertainty": []
 }

@@ -510,6 +510,15 @@ with tempfile.TemporaryDirectory() as guard_root:
     check("Fall-ID mit Pfadsegmenten wird hart abgewiesen", bad_id.returncode == 2)
     check("Cloud-Sync-Pfad wird hart abgewiesen", cloud_out.returncode == 2)
 
+print("T34  Prompt-Beispielquelle und Beispiel-JSON bleiben konsistent (Anti-Drift)")
+_pt34, _ = R.load_prompt()
+_open_ex34 = json.loads(R.extract_prompt_examples(_pt34)["OPEN_EXAMPLE"])
+_rendered34 = R.build_prompt(_pt34, "", "OPEN_DESCRIPTIVE", None, {},
+                             {"unit_id": "S01", "source_text": "Text"})
+_src34 = _rendered34.split("text:", 1)[1].split("Ausgabe:", 1)[0]
+check("OPEN: Beispiel-Quelltext deckt jedes Beispiel-Zitat (kein Quelle/JSON-Drift)",
+      all(c["source_quote"] in _src34 for c in _open_ex34["descriptive_codes"]), _src34)
+
 os.remove(units_file)
 print(f"\n{'='*48}\n  {PASS} PASS  /  {FAIL} FAIL\n{'='*48}")
 sys.exit(0 if FAIL == 0 else 1)

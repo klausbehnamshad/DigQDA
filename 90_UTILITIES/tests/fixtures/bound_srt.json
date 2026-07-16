@@ -5,9 +5,12 @@
     "explicit_speaker": "not stated",
     "coding_decision": "CODES_ASSIGNED",
     "descriptive_codes": [
-      {"code_label": "schwieriger Anfang", "status": "INDUCTIVE_CANDIDATE",
-       "source_quote": "am Anfang war das für mich schwierig",
-       "quote_locator": "00:00:01,000 --> 00:00:04,500"}
+      {
+        "code_label": "ungewohnter Anfang",
+        "status": "INDUCTIVE_CANDIDATE",
+        "source_quote": "am Anfang war das Töpfern ziemlich ungewohnt",
+        "quote_locator": "00:00:01,000 --> 00:00:04,500"
+      }
     ],
     "uncertainty": []
   },
@@ -17,9 +20,12 @@
     "explicit_speaker": "not stated",
     "coding_decision": "CODES_ASSIGNED",
     "descriptive_codes": [
-      {"code_label": "Kontakt über Kurs", "status": "INDUCTIVE_CANDIDATE",
-       "source_quote": "habe ich langsam Leute kennen gelernt",
-       "quote_locator": "00:00:04,600 --> 00:00:08,200"}
+      {
+        "code_label": "Fortschritt im Kurs",
+        "status": "INDUCTIVE_CANDIDATE",
+        "source_quote": "habe ich langsam den Dreh raus bekommen",
+        "quote_locator": "00:00:04,600 --> 00:00:08,200"
+      }
     ],
     "uncertainty": []
   },
@@ -29,9 +35,12 @@
     "explicit_speaker": "not stated",
     "coding_decision": "CODES_ASSIGNED",
     "descriptive_codes": [
-      {"code_label": "Rückkehrwunsch", "status": "INDUCTIVE_CANDIDATE",
-       "source_quote": "ich möchte irgendwann wieder zurückkehren",
-       "quote_locator": "00:05:00,000 --> 00:05:03,000"}
+      {
+        "code_label": "Ausstellungsplan",
+        "status": "INDUCTIVE_CANDIDATE",
+        "source_quote": "ich stelle nächstes Jahr im Café aus",
+        "quote_locator": "00:05:00,000 --> 00:05:03,000"
+      }
     ],
     "uncertainty": []
   }
