@@ -1,4 +1,4 @@
-# QDA Prompt Library — Laufzeitabhängigkeiten (90_UTILITIES)
+# DigQDA — Laufzeitabhängigkeiten (90_UTILITIES)
 # Getestet mit den unten gepinnten Mindestversionen.
 rapidfuzz>=3.0,<4        # qda_validate.py: Zitat-Fuzzy-Matching
 jsonschema>=4.18,<5      # qda_run_p1.py: Re-Validierung gegen p1_schema.json (Draft 2020-12)

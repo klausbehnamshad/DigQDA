@@ -53,7 +53,7 @@ P0_SCHEMA_PATH = os.path.join(_HERE, "..", "schemas", "p0_units.schema.json")
 
 PROMPT_PLACEHOLDERS = (
     "[[RESEARCH_QUESTION]]", "[[CODING_MODE]]", "[[CODEBOOK]]",
-    "[[UNIT_ID]]", "[[UNIT_TEXT]]",
+    "[[EXAMPLE_SOURCE]]", "[[UNIT_ID]]", "[[UNIT_TEXT]]",
 )
 PROMPT_EXAMPLE_TAGS = ("OPEN_EXAMPLE", "CODEBOOK_EXAMPLE")
 PROMPT_BLOCK_RE = re.compile(
@@ -171,7 +171,7 @@ def quarantine_raw(quarantine_dir, run_id, unit_id, raw, status="INVALID_RESPONS
 
 def codebook_block(allowed_labels, defs):
     if not allowed_labels:
-        return "keins"
+        return "NICHT_VERWENDET (OPEN_DESCRIPTIVE)"
     return "; ".join(
         f"{label} = {defs.get(label, '')}".strip(" =")
         for label in allowed_labels
@@ -180,15 +180,43 @@ def codebook_block(allowed_labels, defs):
 
 def build_prompt(template, rq, mode, allowed_labels, defs, unit):
     selected = "OPEN_EXAMPLE" if mode == "OPEN_DESCRIPTIVE" else "CODEBOOK_EXAMPLE"
+    if selected == "CODEBOOK_EXAMPLE":
+        if not allowed_labels:
+            raise ContractInputError(f"Modus {mode} braucht ein nicht-leeres Codebuch")
+        example_label = next(iter(allowed_labels))
+        example_definition = defs.get(example_label, "").strip()
+        if not example_definition:
+            example_definition = f"Codebuchcode {example_label}"
+        example_source = (
+            f"Beispielaussage zum Code {example_label}: {example_definition}."
+        )
+    else:
+        example_label = example_definition = None
+        example_source = (
+            "Meine Familie ist noch in Damaskus, das belastet mich sehr."
+        )
 
     def render_example(match):
-        return match.group(2).strip() if match.group(1) == selected else ""
+        if match.group(1) != selected:
+            return ""
+        raw_example = match.group(2).strip()
+        if selected == "OPEN_EXAMPLE":
+            return raw_example
+        example = json.loads(raw_example)
+        code = example["descriptive_codes"][0]
+        example["concise_description"] = f"Beispielaussage zum Code {example_label}."
+        code["code_label"] = example_label
+        code["definition"] = example_definition
+        code["source_quote"] = example_source
+        return json.dumps(example, ensure_ascii=False, indent=2)
 
     prompt = PROMPT_BLOCK_RE.sub(render_example, template)
     prompt = (prompt
               .replace("[[RESEARCH_QUESTION]]", rq or "explorative Analyse")
               .replace("[[CODING_MODE]]", mode)
               .replace("[[CODEBOOK]]", codebook_block(allowed_labels, defs))
+              .replace("[[EXAMPLE_SOURCE]]",
+                       json.dumps(example_source, ensure_ascii=False))
               .replace("[[UNIT_ID]]", str(unit.get("unit_id", "?")))
               .replace("[[UNIT_TEXT]]", unit.get("source_text", "")))
     unresolved = sorted(set(re.findall(r"\[\[[A-Z_/]+\]\]", prompt)))
@@ -244,6 +272,33 @@ def grammar_schema(schema):
     if isinstance(schema, list):
         return [grammar_schema(x) for x in schema]
     return schema
+
+
+def grammar_schema_for_mode(schema, mode, allowed_labels=None):
+    """Verengt die Backend-Grammatik auf maschinell erzwingbare Modusregeln.
+
+    Der volle, unveraenderte Vertrag wird nach der Modellantwort weiterhin mit
+    jsonschema und validate_mode geprueft. Diese Ableitung verhindert lediglich,
+    dass Ollama in OPEN unzulaessige Statuswerte bzw. in STRICT fremde
+    Codebuchlabels ueberhaupt erzeugt.
+    """
+    grammar = grammar_schema(schema)
+    properties = grammar["properties"]
+    code_properties = properties["descriptive_codes"]["items"]["properties"]
+    decision_schema = properties["coding_decision"]
+    status_schema = code_properties["status"]
+
+    if mode == "OPEN_DESCRIPTIVE":
+        decision_schema["enum"] = ["CODES_ASSIGNED", "NOTHING_CODABLE"]
+        status_schema["enum"] = ["INDUCTIVE_CANDIDATE"]
+    elif mode == "STRICT_CODEBOOK":
+        if not allowed_labels:
+            raise ContractInputError("STRICT-Backend-Grammatik braucht Codebuchlabels")
+        code_properties["code_label"]["enum"] = list(allowed_labels)
+        status_schema["enum"] = ["CODEBOOK_APPLIED", "CODEBOOK_AMBIGUOUS"]
+    elif mode == "CONSTRAINED_EXTENSION":
+        decision_schema["enum"] = ["CODES_ASSIGNED", "NOTHING_CODABLE"]
+    return grammar
 
 
 def bind_p0_fields(unit, model_obj):
@@ -354,7 +409,7 @@ def main():
     ap = argparse.ArgumentParser(description="QDA P1 Runner (fail-closed).")
     ap.add_argument("--units", required=True)
     ap.add_argument("--schema", required=True)
-    ap.add_argument("--model", default="gemma3n:e4b")
+    ap.add_argument("--model", default="gemma3:4b")
     ap.add_argument("--mode", default="OPEN_DESCRIPTIVE",
                     choices=["OPEN_DESCRIPTIVE", "CONSTRAINED_EXTENSION", "STRICT_CODEBOOK"])
     ap.add_argument("--research-question", default="")
@@ -386,7 +441,6 @@ def main():
 
     with open(args.schema, encoding="utf-8") as f:
         full_schema = json.load(f)
-    grammar = grammar_schema(full_schema)
 
     allowed_labels, defs, codebook_sha = None, {}, None
     if args.codebook:
@@ -409,6 +463,13 @@ def main():
     if args.mode in ("STRICT_CODEBOOK", "CONSTRAINED_EXTENSION") and not allowed_labels:
         sys.stderr.write(f"ABBRUCH: Modus {args.mode} braucht --codebook (JSON).\n")
         sys.exit(2)
+
+    try:
+        grammar = grammar_schema_for_mode(full_schema, args.mode, allowed_labels)
+    except ContractInputError as exc:
+        sys.stderr.write(f"ABBRUCH: {exc}\n")
+        sys.exit(2)
+    grammar_sha = canonical_json_sha256(grammar)
 
     schema_sha = hashlib.sha256(json.dumps(full_schema, sort_keys=True).encode()).hexdigest()
     prompt_sha = hashlib.sha256(template.encode()).hexdigest()
@@ -510,7 +571,8 @@ def main():
         "runner_id": "QDA-P1-RUNNER", "run_id": run_id, "library_version": LIBRARY_VERSION,
         "contract_version": CONTRACT_VERSION, "contract_sha256": contract_sha,
         "prompt_id": PROMPT_ID, "prompt_version": PROMPT_VERSION, "prompt_sha256": prompt_sha,
-        "prompt_source": prompt_source, "schema_sha256": schema_sha, "allowed_method_claim": claim,
+        "prompt_source": prompt_source, "schema_sha256": schema_sha,
+        "grammar_sha256": grammar_sha, "allowed_method_claim": claim,
         "model": args.model, "model_quantization": model_quant, "model_digest": model_digest,
         "backend": "ollama", "backend_client_version": backend_client_version,
         "mode": args.mode, "codebook_size": (len(allowed_labels) if allowed_labels else 0),

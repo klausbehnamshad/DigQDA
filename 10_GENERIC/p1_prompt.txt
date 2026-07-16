@@ -6,22 +6,28 @@ Kodiere ausschließlich manifest belegte Sachverhalte. Nur die source_quote muss
 EINSTELLUNGEN
 - Forschungsfrage: [[RESEARCH_QUESTION]]
 - Coding-Modus: [[CODING_MODE]]
-- Codebuch (nur diese Codes sind erlaubt, falls nicht "keins"): [[CODEBOOK]]
+- Gebundenes Codebuch: [[CODEBOOK]]
 - Ausgabesprache: Deutsch (Zitate immer in Originalsprache belassen)
 
 REGELN
 1. Bleib am manifesten Inhalt (beschrieben, getan, erlebt, berichtet, verglichen, bewertet, erinnert).
 2. Führe nichts Verstecktes ein: keine latente Bedeutung, keine Psyche, keine Identität/Resilienz/Trauma/Macht.
 3. Ein code_label paraphrasiert knapp; kein Ort/keine Kategorie/kein Begriff, der nicht im Text steht (aus "Damaskus" wird NICHT "Herkunftsland").
-4. Kopiere pro Code eine kurze source_quote ZEICHENGETREU aus der Einheit.
+4. Kopiere pro Code eine kurze source_quote als zusammenhängenden Teilstring
+   ZEICHENGETREU aus der Einheit. Groß-/Kleinschreibung und Satzzeichen bleiben
+   unverändert.
 5. Ton, Pause, Ironie, Emotion, Prosodie NICHT erschließen.
-6. Lieber KEIN Code als ein vager, abstrakter oder doppelter.
+6. Lieber coding_decision NOTHING_CODABLE bzw. NO_CODE_FITS mit
+   descriptive_codes [] als ein vager, abstrakter oder doppelter Code.
 7. Nur diese Einheit. Keine Aussage über das ganze Interview.
 8. coding_decision: CODES_ASSIGNED (>=1 Code) | NO_CODE_FITS (nur STRICT_CODEBOOK, codes []) | NOTHING_CODABLE (kein relevanter Inhalt, codes []).
 9. uncertainty ist eine Liste kurzer Punkte; sonst [].
 
 MODUS-DETAILS
-- STRICT_CODEBOOK: NUR Codebuch-Codes (CODEBOOK_APPLIED/AMBIGUOUS). Kein neuer Code, kein INDUCTIVE_CANDIDATE. Passt keiner: codes [], coding_decision NO_CODE_FITS.
+- STRICT_CODEBOOK: NUR Codebuch-Codes (CODEBOOK_APPLIED/AMBIGUOUS). Kein neuer
+  Code, kein INDUCTIVE_CANDIDATE. Passt keiner: descriptive_codes [] und
+  coding_decision NO_CODE_FITS. Erzeuge niemals einen Pseudocode wie "keins",
+  "kein Code" oder "nicht passend".
 - CONSTRAINED_EXTENSION: entweder Codebuch-Codes (Label aus dem Codebuch) ODER, wenn keiner passt, EIN INDUCTIVE_CANDIDATE. Nicht beides in einer Einheit. Kein NO_CODE_FITS.
 - OPEN_DESCRIPTIVE: kein Codebuch; alle Codes INDUCTIVE_CANDIDATE. Kein NO_CODE_FITS.
 
@@ -29,7 +35,7 @@ AUSGABE
 Gib AUSSCHLIESSLICH ein einziges JSON-Objekt nach dem Schema zurück. Kein Text davor/danach, kein Markdown. Erzeuge NICHT unit_id, source_range, explicit_speaker, quote_locator.
 
 BEISPIEL (für den gewählten Modus)
-Quelleinheit: unit_id: S03, text: "Meine Familie ist noch in Damaskus, das belastet mich sehr."
+Quelleinheit: unit_id: EXAMPLE, text: [[EXAMPLE_SOURCE]]
 Ausgabe:
 [[OPEN_EXAMPLE]]
 {
@@ -55,15 +61,15 @@ Ausgabe:
 [[/OPEN_EXAMPLE]]
 [[CODEBOOK_EXAMPLE]]
 {
-  "concise_description": "Familie ist noch in Damaskus; eine Belastung wird ausdrücklich benannt.",
-  "narrative_function": "EVALUATION",
+  "concise_description": "__BOUND_CODEBOOK_DESCRIPTION__",
+  "narrative_function": "GENERAL_STATEMENT",
   "coding_decision": "CODES_ASSIGNED",
   "descriptive_codes": [
     {
-      "code_label": "Familienbindung",
-      "definition": "im Codebuch: Bezug auf Angehörige",
+      "code_label": "__BOUND_CODEBOOK_LABEL__",
+      "definition": "__BOUND_CODEBOOK_DEFINITION__",
       "status": "CODEBOOK_APPLIED",
-      "source_quote": "Meine Familie ist noch in Damaskus"
+      "source_quote": "__BOUND_CODEBOOK_SOURCE__"
     }
   ],
   "uncertainty": []

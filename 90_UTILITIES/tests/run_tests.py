@@ -105,12 +105,17 @@ def run_p1(*extra):
     return (json.loads(r.stdout)["_qda_run"] if r.stdout.strip() else None), r.returncode
 
 
+def rendered_prompt_example(prompt):
+    return json.loads(prompt.split("Ausgabe:\n", 1)[1].split("\n\nZUR ERINNERUNG", 1)[0])
+
+
 m, rc = run_p1("--num-ctx", "8192")
 check("DRY_RUN_OK", m["statuses"][0]["status"] == "DRY_RUN_OK")
 check("Exit 0", rc == 0)
 check("Manifest: contract/schema/prompt/library/claim + Hashes",
       all(k in m for k in ("contract_version", "contract_sha256", "schema_sha256",
-                           "prompt_sha256", "library_version", "allowed_method_claim")))
+                           "grammar_sha256", "prompt_sha256", "library_version",
+                           "allowed_method_claim")))
 
 print("T6  Runner fail-closed bei Budget")
 m2, rc2 = run_p1("--num-ctx", "300", "--reserve-output-tokens", "100")
@@ -123,13 +128,43 @@ prompt_examples = R.extract_prompt_examples(prompt_bundle)
 ex_open = json.loads(prompt_examples["OPEN_EXAMPLE"])
 ex_cb = json.loads(prompt_examples["CODEBOOK_EXAMPLE"])
 check("EXAMPLE_OPEN valide", not list(v.iter_errors(ex_open)))
-check("EXAMPLE_CODEBOOK valide", not list(v.iter_errors(ex_cb)))
+check("CODEBOOK-Beispieltemplate valide", not list(v.iter_errors(ex_cb)))
 tmp_ex = os.path.join(HERE, "_tmp_example.json")
 json.dump(ex_open, open(tmp_ex, "w", encoding="utf-8"), ensure_ascii=False)
 rr = run([os.path.join(UTIL, "qda_validate.py"), "--source", srt, "--json", tmp_ex, "--document-mode"])
 res7 = json.loads(rr.stdout.split("--- Manifest-Fragment ---")[-1])["result"]
 check("beide Beispiel-Zitate EXACT (document-mode)", res7["quotes_exact"] == 2, res7)
 os.remove(tmp_ex)
+rendered_ex_cb = R.build_prompt(
+    prompt_bundle,
+    "",
+    "STRICT_CODEBOOK",
+    ["Gartenarbeit", "positive Bewertung"],
+    {
+        "Gartenarbeit": "beschreibt konkrete Tätigkeiten im Garten",
+        "positive Bewertung": "eine Erfahrung wird positiv bewertet",
+    },
+    {"unit_id": "S01", "source_text": "Test"},
+)
+rendered_ex_obj = rendered_prompt_example(rendered_ex_cb)
+rendered_ex_code = rendered_ex_obj["descriptive_codes"][0]
+check(
+    "CODEBOOK-Beispiel wird an das gebundene Codebuch gerendert",
+    rendered_ex_code["code_label"] == "Gartenarbeit"
+    and rendered_ex_code["definition"] == "beschreibt konkrete Tätigkeiten im Garten"
+    and R.validate_mode(
+        rendered_ex_obj,
+        "STRICT_CODEBOOK",
+        ["Gartenarbeit", "positive Bewertung"],
+    ) is None,
+    rendered_ex_obj,
+)
+check(
+    "dynamische Beispielquelle bindet das Beispielzitat zeichengetreu",
+    f'text: {json.dumps(rendered_ex_code["source_quote"], ensure_ascii=False)}'
+    in rendered_ex_cb
+    and "__BOUND_CODEBOOK" not in rendered_ex_cb,
+)
 
 print("T8  Binding: Fehlbindung -> WRONG_UNIT (P0-02-Kern)")
 res8, rc8 = validate("mis_attribution.json")
@@ -168,6 +203,18 @@ gs = json.dumps(g)
 check("kein allOf/if/then", not any(k in g for k in ("allOf", "if", "then")))
 check("kein minLength/minItems", "minLength" not in gs and "minItems" not in gs)
 check("enum/additionalProperties bleiben", '"enum"' in gs and "additionalProperties" in gs)
+strict_g = R.grammar_schema_for_mode(schema, "STRICT_CODEBOOK", ["Beta", "Alpha"])
+strict_code_props = strict_g["properties"]["descriptive_codes"]["items"]["properties"]
+check("STRICT-Grammatik erlaubt nur gebundene Codebuchlabels",
+      strict_code_props["code_label"]["enum"] == ["Beta", "Alpha"]
+      and strict_code_props["status"]["enum"]
+      == ["CODEBOOK_APPLIED", "CODEBOOK_AMBIGUOUS"])
+open_g = R.grammar_schema_for_mode(schema, "OPEN_DESCRIPTIVE")
+open_props = open_g["properties"]
+check("OPEN-Grammatik schliesst Codebuchstatus und NO_CODE_FITS strukturell aus",
+      open_props["coding_decision"]["enum"] == ["CODES_ASSIGNED", "NOTHING_CODABLE"]
+      and open_props["descriptive_codes"]["items"]["properties"]["status"]["enum"]
+      == ["INDUCTIVE_CANDIDATE"])
 
 print("T12  Hash-Konsistenz")
 _, _ = validate("bound_srt.json")
@@ -255,10 +302,12 @@ rendered_cb = R.build_prompt(_ptxt, "", "STRICT_CODEBOOK", {"Familienbindung"},
                              {"Familienbindung": "Definition"},
                              {"unit_id": "S01", "source_text": "Text"})
 check("Modus rendert genau sein Beispiel",
-      '"code_label": "Familie in Damaskus"' in rendered_open
-      and '"code_label": "Familienbindung"' not in rendered_open
-      and '"code_label": "Familienbindung"' in rendered_cb
-      and '"code_label": "Familie in Damaskus"' not in rendered_cb)
+      rendered_prompt_example(rendered_open)["coding_decision"] == "CODES_ASSIGNED"
+      and rendered_prompt_example(rendered_open)["descriptive_codes"][0]["status"]
+      == "INDUCTIVE_CANDIDATE"
+      and rendered_prompt_example(rendered_cb)["coding_decision"] == "CODES_ASSIGNED"
+      and rendered_prompt_example(rendered_cb)["descriptive_codes"][0]["code_label"]
+      == "Familienbindung")
 check("gerenderter Prompt enthaelt keine Contract-Marker", "[[" not in rendered_open and "[[" not in rendered_cb)
 
 print("T25  Phase2 P0-Envelope ist zwingend ein schema-validiertes Objekt")

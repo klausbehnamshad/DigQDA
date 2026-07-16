@@ -235,14 +235,16 @@ stehen bis zur Ausarbeitung ausschließlich im Katalog dieses README.
 
 | Datei | Status | Rolle / Methodenclaim |
 |---|---|---|
-| `10_GENERIC/QDA-GEN-DESCRIPTIVE-CODING_SEGMENT_v1.1.md` | DRAFT | P1-Prompt (ein source_unit/Call, JSON-first); generische quellennahe Kodierung, kein spezifischer Methodenclaim |
+| `10_GENERIC/p1_prompt.txt` | DRAFT | einzige kanonische, vollständig gehashte Runtime-Promptquelle mit OPEN-/CODEBOOK-Beispielen |
+| `10_GENERIC/QDA-GEN-DESCRIPTIVE-CODING_SEGMENT_v1.1.md` | DRAFT | Methodenspezifikation für generische quellennahe Kodierung; kein Runtime-Fallback und kein spezifischer Methodenclaim |
 | `10_GENERIC/p1_schema.json` | DRAFT | strenger Outputvertrag für P1 (additionalProperties:false, Enums, if/then) |
 | `10_GENERIC/QDA-GEN-CONTROLLED-CODING_v1.1.md` | REVIEWED | Monolith; für die P1-Rolle abgelöst durch die dekomponierte Fassung oben |
 | `00_CORE/QDA-CORE-RELIABILITY-LAYER_v0.1.md` | DRAFT | Pass-Pipeline, Runtime, Manifest, Validator/Renderer-Rollen |
 | `90_UTILITIES/qda_segment.py` | DRAFT | P0: deterministische Segmentierung (SRT/TXT) |
 | `90_UTILITIES/qda_validate.py` | DRAFT | Validator: Zitat-in-Einheit + Locator, fail-closed |
 | `90_UTILITIES/qda_run_p1.py` | DRAFT | P1-Runner (Ollama), Modus erzwungen, fail-closed |
-| `90_UTILITIES/tests/run_tests.py` | DRAFT | Conformance-Suite (93 Checks); `pip install -r requirements.txt` |
+| `90_UTILITIES/tests/run_tests.py` | DRAFT | Conformance-Suite (97 Checks); `pip install -r requirements.txt` |
+| `90_UTILITIES/smoke/run_smoke.sh` | DRAFT | synthetischer End-to-End-Pfad P0 (SRT+TXT) → P1 (OPEN+STRICT) → Validator |
 
 Hinweis: Der Monolith trägt intern noch `TECHNICAL_VALIDATION: NONE`. Für die
 dekomponierte P1-Linie gilt `TECHNICAL_VALIDATION: REQUIRED` — die Prüfung

@@ -61,6 +61,30 @@ python3 90_UTILITIES/tests/run_tests.py
 The Ollama dependency is required only for real model calls. Dry runs and most
 contract checks do not require a running model service.
 
+### Synthetic end-to-end smoke test
+
+The bundled smoke harness joins the reference stages into one fail-closed local
+path. It exercises P0 for SRT and TXT, then runs OPEN and STRICT P1 coding plus
+external validation against the synthetic SRT fixture:
+
+```bash
+DRY=1 bash 90_UTILITIES/smoke/run_smoke.sh
+ollama list
+MODEL=<exact-installed-gemma-tag> bash 90_UTILITIES/smoke/run_smoke.sh
+```
+
+The real-model command accepts only an installed exact Ollama tag. Generated
+artifacts stay under the ignored `90_UTILITIES/smoke/out/` directory. See
+[`90_UTILITIES/smoke/README_SMOKE.md`](90_UTILITIES/smoke/README_SMOKE.md) for
+the exit-code and review contract. Do not substitute real transcripts for the
+synthetic fixtures.
+
+The first recorded local compatibility result is
+[`gemma3:4b` via Ollama](docs/MODEL_COMPATIBILITY.md): both OPEN and STRICT
+completed with model-bound provenance and external validator `PASS` on the
+synthetic fixture. This is a plumbing/conformance result, not a claim of
+general analytic quality.
+
 ### Invalid-response quarantine
 
 Raw invalid model responses are never persisted by default. For an explicitly

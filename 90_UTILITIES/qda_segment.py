@@ -3,7 +3,7 @@
 """
 QDA P0 — SEGMENTIERUNG (v0.1, DRAFT)
 
-Deterministische Vor-Segmentierung fuer die QDA Prompt Library.
+Deterministische Vor-Segmentierung fuer DigQDA.
 KEIN Modell. P0 trifft KEINE analytischen Entscheidungen — es zerlegt die
 Quelle nur an *beobachtbaren* Grenzen (Cue-Pausen bzw. Leerzeilen) in
 handhabbare Kodierfenster mit exakt uebernommenen Locatoren. Die eigentliche
@@ -39,7 +39,9 @@ def atomic_write(path, text):
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text); f.flush(); os.fsync(f.fileno())
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
@@ -105,8 +107,12 @@ def parse_srt(raw, force_srt=False):
     seen_idx = set()
     last_start = -1
     for bnum, block in enumerate(blocks, 1):
-        lines = [l for l in block.splitlines() if l.strip() != ""]
-        tc_lines = [l for l in lines if "-->" in l and len(TIMECODE_RE.findall(l)) >= 2]
+        lines = [line for line in block.splitlines() if line.strip() != ""]
+        tc_lines = [
+            line
+            for line in lines
+            if "-->" in line and len(TIMECODE_RE.findall(line)) >= 2
+        ]
         if len(tc_lines) != 1:
             problems.append(f"Block {bnum}: {'keine' if not tc_lines else 'mehrere'} gueltige Timecode-Zeile(n)")
             continue
@@ -191,7 +197,7 @@ def segment_txt(raw, max_chars):
         while j < n and lines[j].strip() != "":
             j += 1
         block_lines = lines[i:j]
-        text = " ".join(l.strip() for l in block_lines).strip()
+        text = " ".join(line.strip() for line in block_lines).strip()
         char_start = line_start_char[i]
         char_end = line_start_char[j - 1] + len(lines[j - 1])
         uid = f"S{len(segments) + 1:02d}"

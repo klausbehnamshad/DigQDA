@@ -52,6 +52,7 @@ DigQDA MUST:
 - bind each evidence quote to the supplied source unit;
 - fail closed on schema, mode, budget, backend or validation failure;
 - expose contract, schema, prompt, library, model and backend provenance;
+- expose a hash of the effective mode-specialized backend grammar;
 - bind every real model result to a concrete model digest and every unit status
   to canonical input and rendered-prompt hashes;
 - avoid implicit persistence and avoid emitting source quotations when invoked

@@ -1,6 +1,6 @@
-# Citation File Format 1.2.0  —  https://citation-file-format.github.io
-# TODO vor Publikation ausfüllen: <NAME>, ORCID, affiliation, version, DOI, repo-URL.
-# GitHub rendert daraus automatisch einen "Cite this repository"-Button.
+# Citation File Format 1.2.0 — https://citation-file-format.github.io
+# Repository URL, ORCID, affiliation, release date and DOI are intentionally
+# omitted until they have been confirmed for the first public release.
 cff-version: 1.2.0
 message: "Wenn Sie dieses Werkzeug verwenden, zitieren Sie es bitte wie folgt."
 title: "DigQDA — Digital QDA (AI-assisted): evidence-bound qualitative data analysis with local models"
@@ -14,13 +14,8 @@ type: software
 authors:
   - family-names: Behnamshad
     given-names: Klaus
-    orcid: "https://orcid.org/0000-0000-0000-0000"   # TODO
-    affiliation: "TODO — siehe Urheber-/Trägerschaftsfrage (Person vs. Universität)"
-  # - weitere Autor:innen / Contributor:innen hier ergänzen
-version: "0.4.0"                 # TODO: an den Release-Tag anpassen
-# date-released: erst beim ersten oeffentlichen Release setzen (derzeit unveroeffentlicht)
+version: "0.4.0"
 license: "MIT"
-repository-code: "https://github.com/TODO-org/TODO-repo"
 keywords:
   - qualitative data analysis
   - QDA
@@ -29,5 +24,3 @@ keywords:
   - evidence-bound coding
   - human-in-the-loop
   - oral history
-# Nach dem ersten Zenodo-Release den Concept-DOI (alle Versionen) hier eintragen:
-# doi: "10.5281/zenodo.XXXXXXX"

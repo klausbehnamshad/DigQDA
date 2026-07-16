@@ -65,7 +65,9 @@ def atomic_write(path, text):
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text); f.flush(); os.fsync(f.fileno())
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
@@ -79,7 +81,7 @@ def tc(h, m, s, ms):
 def parse_srt(raw):
     cues = []
     for block in re.split(r"\n\s*\n", raw.strip()):
-        lines = [l for l in block.splitlines() if l.strip() != ""]
+        lines = [line for line in block.splitlines() if line.strip() != ""]
         if not lines:
             continue
         for i, line in enumerate(lines):
@@ -106,7 +108,8 @@ def unit_haystack(source_range, src):
     m = re.search(r"[Ll]\s*(\d+)\s*[-–]\s*[Ll]?\s*(\d+)", source_range) or \
         re.search(r"[Ll]\s*(\d+)", source_range)
     if m:
-        a = int(m.group(1)); b = int(m.group(2)) if m.lastindex >= 2 else a
+        a = int(m.group(1))
+        b = int(m.group(2)) if m.lastindex >= 2 else a
         lines = src["lines"]
         if 1 <= a <= b <= len(lines):
             return normalize(" ".join(lines[a - 1:b]))
@@ -147,7 +150,8 @@ def check_locator(loc, src):
     if not src["is_srt"]:
         m = re.search(r"[Ll]\s*(\d+)\s*[-–]\s*[Ll]?\s*(\d+)", loc) or re.search(r"[Ll]\s*(\d+)", loc)
         if m:
-            a = int(m.group(1)); b = int(m.group(2)) if m.lastindex >= 2 else a
+            a = int(m.group(1))
+            b = int(m.group(2)) if m.lastindex >= 2 else a
             if 1 <= a <= b <= src["n_lines"]:
                 return {"result": "PRESENT"}
             return {"result": "NOT_FOUND", "reason": f"Zeilen {a}-{b} ausserhalb"}
@@ -305,7 +309,8 @@ def main():
             uh = None
             for rk in UNIT_RANGE_KEYS:
                 if isinstance(unit.get(rk), str):
-                    uh = unit_haystack(unit[rk], src); break
+                    uh = unit_haystack(unit[rk], src)
+                    break
             bindings.append(uh)
             collect_from_unit(unit, uh, src, args.fuzzy_threshold, args.document_mode, findings)
 
