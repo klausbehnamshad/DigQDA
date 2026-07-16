@@ -56,10 +56,26 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r requirements.txt
 python3 90_UTILITIES/tests/run_tests.py
+./digqda doctor
 ```
 
 The Ollama dependency is required only for real model calls. Dry runs and most
 contract checks do not require a running model service.
+
+### Supervised pilot workflow
+
+The method-first pilot path has one stable entry point. It creates a fresh,
+owner-only run directory, hides the source filename behind an opaque case ID,
+runs P0 → P1 → external validation and evaluates the complete provenance gate:
+
+```bash
+./digqda pilot CASE-001 /secure/path/interview.srt
+```
+
+The default is `OPEN_DESCRIPTIVE` with local `gemma3:4b`; mode, codebook,
+research question and model remain explicit method choices. Runtime artifacts
+go to `~/DigQDA-Pilot` by default and never into the Git repository. See
+[`90_UTILITIES/pilot/README_PILOT.md`](90_UTILITIES/pilot/README_PILOT.md).
 
 ### Synthetic end-to-end smoke test
 
@@ -88,10 +104,11 @@ general analytic quality.
 ### Invalid-response quarantine
 
 Raw invalid model responses are never persisted by default. For an explicitly
-governed debugging run, pass `--quarantine-dir quarantine`; files are written
-under hash-derived names and that repository-local directory is ignored by Git.
-The contents can still contain sensitive source material and require the same
-access, retention and deletion controls as other research data.
+governed pilot diagnosis, pass `--diagnostic-quarantine`; files are isolated in
+that run's protected external directory under hash-derived names. Low-level
+runner integrations can use `--quarantine-dir`. The contents can still contain
+sensitive source material and require the same access, retention and deletion
+controls as other research data.
 
 ## Repository map
 
@@ -99,6 +116,7 @@ access, retention and deletion controls as other research data.
 - `00_CORE/` — reliability design and method-independent principles;
 - `10_GENERIC/` — generic coding prompts and schemas;
 - `90_UTILITIES/` — reference CLIs and conformance tests;
+- `digqda` — stable local entry point for environment checks and pilot runs;
 - `docs/METHOD_CATALOG.md` — broader method-family catalog inherited from the
   prototype and retained as design context;
 - `GOVERNANCE.md` — lightweight method governance and release policy.

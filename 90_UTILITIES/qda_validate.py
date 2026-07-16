@@ -272,6 +272,10 @@ def build_report(findings, meta, verdict, reason):
 def main():
     ap = argparse.ArgumentParser(description="QDA Quote-/Locator-Validator (fail-closed).")
     ap.add_argument("--source", required=True)
+    ap.add_argument(
+        "--source-label",
+        help="Optionales opakes Quellenlabel fuer Manifest/Reports (Pfad bleibt verborgen).",
+    )
     ap.add_argument("--json", required=True)
     ap.add_argument("--out")
     ap.add_argument("--report")
@@ -285,13 +289,20 @@ def main():
     source_raw = raw_bytes.decode("utf-8")
     with open(args.json, encoding="utf-8") as f:
         data = json.load(f)
+    input_sha = hashlib.sha256(json.dumps(
+        data, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
 
     cues, is_srt = parse_srt(source_raw)
     lines = source_raw.splitlines()
     doc_hay = normalize(" ".join(c["text"] for c in cues)) if is_srt else normalize(source_raw)
     src = {"cues": cues, "is_srt": is_srt, "lines": lines, "doc_hay": doc_hay,
            "n_lines": len(lines), "n_chars": len(source_raw)}
-    meta = {"source_name": args.source.split("/")[-1], "source_sha256": source_sha,
+    source_label = args.source_label or os.path.basename(args.source)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", source_label):
+        sys.stderr.write("ABBRUCH: --source-label ist kein pfadsicheres opakes Label.\n")
+        sys.exit(2)
+    meta = {"source_name": source_label, "source_sha256": source_sha,
             "is_srt": is_srt, "n_cues": len(cues), "threshold": args.fuzzy_threshold,
             "document_mode": args.document_mode,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}
@@ -336,6 +347,7 @@ def main():
     report_md, summary = build_report(findings, meta, verdict, reason)
     manifest = {"validator_id": "QDA-UTIL-QUOTE-LOCATOR-VALIDATION",
                 "validator_version": VALIDATOR_VERSION, "source_sha256": source_sha,
+                "input_sha256": input_sha,
                 "document_mode": args.document_mode, "timestamp": meta["timestamp"], "result": summary}
     if args.out:
         atomic_write(args.out, json.dumps({"_qda_validation": manifest, "data": data},

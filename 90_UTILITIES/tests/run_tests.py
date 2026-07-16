@@ -19,11 +19,13 @@ from jsonschema import Draft202012Validator
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 UTIL = os.path.dirname(HERE)
+ROOT = os.path.dirname(UTIL)
 GEN = os.path.join(os.path.dirname(UTIL), "10_GENERIC")
 FIX = os.path.join(HERE, "fixtures")
 PY = sys.executable
 sys.path.insert(0, UTIL)
 import qda_run_p1 as R  # noqa: E402
+import digqda_cli as D  # noqa: E402
 
 PASS = FAIL = 0
 
@@ -440,6 +442,73 @@ try:
 finally:
     os.remove(tmp_bad_unit_id)
 check("unit_id mit Pfadsegmenten wird am Envelope abgewiesen", unsafe_unit_closed)
+
+print("T33  Smoothe Pilotkante: ein Einstieg, isolierte Laeufe, harte Guards")
+with tempfile.TemporaryDirectory() as pilot_root:
+    pilot_source = os.path.join(UTIL, "smoke", "fixtures", "interview_demo.srt")
+    pilot_cmd = [
+        os.path.join(ROOT, "digqda"), "pilot", "CASE-CI", pilot_source,
+        "--dry-run", "--synthetic", "--out-root", pilot_root,
+    ]
+    first = run(pilot_cmd)
+    second = run(pilot_cmd)
+    case_dir = os.path.join(pilot_root, "CASE-CI")
+    run_dirs = sorted(os.path.join(case_dir, name) for name in os.listdir(case_dir))
+    latest = run_dirs[-1]
+    seg_pilot = json.load(open(os.path.join(latest, "segments.json"), encoding="utf-8"))
+    coding_pilot = json.load(open(os.path.join(latest, "coding.json"), encoding="utf-8"))
+    validation_pilot = json.load(open(os.path.join(latest, "validation.json"), encoding="utf-8"))
+    report_pilot = open(os.path.join(latest, "validation.md"), encoding="utf-8").read()
+    all_paths = [latest] + [os.path.join(latest, name) for name in os.listdir(latest)]
+    check("root CLI dry-run ist als Plumbing erfolgreich", first.returncode == 0, first.stderr)
+    check("wiederholter Fall erzeugt neuen Lauf statt Ueberschreiben",
+          second.returncode == 0 and len(run_dirs) == 2, run_dirs)
+    check("Quelle ist in P0 und Report nur opak benannt",
+          seg_pilot["meta"]["source"] == "CASE-CI.srt"
+          and "interview_demo" not in report_pilot)
+    check("Laufartefakte sind owner-only",
+          all((os.stat(path).st_mode & 0o077) == 0 for path in all_paths))
+    check("Dry-run Gate prueft bewusst das vollstaendige Nicht-Ergebnis",
+          D.evaluate_gate(
+              seg_pilot, coding_pilot, validation_pilot,
+              runner_exit=0, validator_exit=2,
+              requested_model="gemma3:4b", requested_mode="OPEN_DESCRIPTIVE",
+              research_question="", codebook_bytes=None,
+              dry_run=True,
+          )[0])
+    tampered = json.loads(json.dumps(coding_pilot))
+    tampered["_qda_run"]["prompt_source"] = "embedded"
+    check("manipulierte Prompt-Provenance sperrt das Gate",
+          not D.evaluate_gate(
+              seg_pilot, tampered, validation_pilot,
+              runner_exit=0, validator_exit=2,
+              requested_model="gemma3:4b", requested_mode="OPEN_DESCRIPTIVE",
+              research_question="", codebook_bytes=None,
+              dry_run=True,
+          )[0])
+
+with tempfile.TemporaryDirectory() as guard_root:
+    guard_source = os.path.join(UTIL, "smoke", "fixtures", "interview_demo.srt")
+    no_synth = run([
+        os.path.join(ROOT, "digqda"), "pilot", "CASE-GUARD", guard_source,
+        "--dry-run", "--out-root", guard_root,
+    ])
+    bad_out = run([
+        os.path.join(ROOT, "digqda"), "pilot", "CASE-GUARD", guard_source,
+        "--dry-run", "--synthetic", "--out-root", os.path.join(ROOT, "pilot-output"),
+    ])
+    bad_id = run([
+        os.path.join(ROOT, "digqda"), "pilot", "../CASE", guard_source,
+        "--dry-run", "--synthetic", "--out-root", guard_root,
+    ])
+    cloud_out = run([
+        os.path.join(ROOT, "digqda"), "pilot", "CASE-GUARD", guard_source,
+        "--dry-run", "--synthetic", "--out-root", "/tmp/Dropbox/DigQDA-Pilot",
+    ])
+    check("Repo-Quelle braucht explizite synthetische Freigabe", no_synth.returncode == 2)
+    check("Output im Git-Repo wird hart abgewiesen", bad_out.returncode == 2)
+    check("Fall-ID mit Pfadsegmenten wird hart abgewiesen", bad_id.returncode == 2)
+    check("Cloud-Sync-Pfad wird hart abgewiesen", cloud_out.returncode == 2)
 
 os.remove(units_file)
 print(f"\n{'='*48}\n  {PASS} PASS  /  {FAIL} FAIL\n{'='*48}")

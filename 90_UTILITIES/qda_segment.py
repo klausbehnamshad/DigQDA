@@ -224,6 +224,10 @@ def main():
     ap = argparse.ArgumentParser(description="QDA P0 — deterministische Segmentierung (SRT/TXT).")
     ap.add_argument("--source", required=True, help=".srt oder .txt")
     ap.add_argument("--out", help="Ziel-JSON (sonst stdout)")
+    ap.add_argument(
+        "--source-label",
+        help="Optionales opakes Quellenlabel fuer Manifest/Reports (Pfad bleibt verborgen).",
+    )
     ap.add_argument("--mode", choices=["window", "cue"], default="window",
                     help="SRT: window (Cues zu Fenstern) oder cue (1 Segment/Cue). Default window.")
     ap.add_argument("--max-gap-ms", type=int, default=2000,
@@ -254,9 +258,14 @@ def main():
         source_type = "txt"
         segments = segment_txt(raw, args.max_chars)
 
+    source_label = args.source_label or os.path.basename(args.source)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", source_label):
+        sys.stderr.write("ABBRUCH: --source-label ist kein pfadsicheres opakes Label.\n")
+        sys.exit(2)
+
     out = {
         "meta": {
-            "source": args.source.split("/")[-1],
+            "source": source_label,
             "source_type": source_type,
             "source_sha256": sha,
             "mode": args.mode if source_type == "srt" else "paragraph",

@@ -31,3 +31,8 @@ All notable changes will be documented here.
   effective `grammar_sha256` in run provenance;
 - recorded a fully passing synthetic OPEN+STRICT compatibility run for local
   `gemma3:4b` (`Q4_K_M`) via Ollama.
+- added the single `./digqda` workflow entry point with environment doctor,
+  opaque source labels, fresh owner-only run directories and a complete
+  fail-closed pilot gate; pilot quarantine is now explicitly opt-in;
+- added end-to-end regressions for repeat-run isolation, permissions, source
+  pseudonymization, hard repo-path guards and provenance tampering.

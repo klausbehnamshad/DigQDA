@@ -195,11 +195,14 @@ Report ein anderes Label als unverifizierte („source_quote_verified" vs.
 
 ## Stand
 
-Fertig und getestet (`90_UTILITIES/tests/run_tests.py`, 97 Checks; Stand v0.4):
+Fertig und getestet (`90_UTILITIES/tests/run_tests.py`, 107 Checks; Stand v0.4):
 - `qda_segment.py` (P0, SRT+TXT), `qda_validate.py` (V, SRT+TXT),
   `qda_run_p1.py` (Runner mit Budget-Check), `p1_schema.json` (strenger Vertrag),
   `p1_prompt.txt` (einzige kanonische Runtime-Promptquelle) und
   `QDA-GEN-DESCRIPTIVE-CODING_SEGMENT_v1.1.md` (Methodenspezifikation).
+
+Der Einstieg `./digqda pilot` verbindet diese Kanten in frischen,
+zugriffsbeschränkten Laufordnern und bewertet ein vollständiges Provenance-Gate.
 
 Nächste Bausteine:
 - `qda_render.py` (JSON → 10-Sektionen-Report, verifiziert/unverifiziert-Labels)

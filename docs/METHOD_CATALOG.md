@@ -243,8 +243,9 @@ stehen bis zur Ausarbeitung ausschließlich im Katalog dieses README.
 | `90_UTILITIES/qda_segment.py` | DRAFT | P0: deterministische Segmentierung (SRT/TXT) |
 | `90_UTILITIES/qda_validate.py` | DRAFT | Validator: Zitat-in-Einheit + Locator, fail-closed |
 | `90_UTILITIES/qda_run_p1.py` | DRAFT | P1-Runner (Ollama), Modus erzwungen, fail-closed |
-| `90_UTILITIES/tests/run_tests.py` | DRAFT | Conformance-Suite (97 Checks); `pip install -r requirements.txt` |
+| `90_UTILITIES/tests/run_tests.py` | DRAFT | Conformance-Suite (107 Checks); `pip install -r requirements.txt` |
 | `90_UTILITIES/smoke/run_smoke.sh` | DRAFT | synthetischer End-to-End-Pfad P0 (SRT+TXT) → P1 (OPEN+STRICT) → Validator |
+| `digqda` | DRAFT | einheitlicher Einstieg für Doctor-Check und isolierten P0 → P1 → Validator-Pilot |
 
 Hinweis: Der Monolith trägt intern noch `TECHNICAL_VALIDATION: NONE`. Für die
 dekomponierte P1-Linie gilt `TECHNICAL_VALIDATION: REQUIRED` — die Prüfung
