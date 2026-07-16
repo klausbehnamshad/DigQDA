@@ -100,6 +100,9 @@ The first recorded local compatibility result is
 completed with model-bound provenance and external validator `PASS` on the
 synthetic fixture. This is a plumbing/conformance result, not a claim of
 general analytic quality.
+Tested model/backend combinations are limited to those recorded in
+`docs/MODEL_COMPATIBILITY.md`; other local models are unverified, and DigQDA does
+not claim model agnosticism.
 
 ### Invalid-response quarantine
 
