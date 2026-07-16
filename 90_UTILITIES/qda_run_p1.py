@@ -1,105 +1,110 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-QDA P1 RUNNER (v0.3, DRAFT) -- Referenzimplementierung der P1-Kante.
+QDA P1 RUNNER (v0.4, DRAFT) -- Referenzimplementierung der P1-Kante.
 
-v0.3 schliesst Senior-Review-P0:
-- P0-03: vollstaendige Modus-Statemachine (validate_mode): coding_decision-Legalitaet,
-  Status/Label-Mitgliedschaft, kein Mischen von Codebuch+induktiv, Kardinalitaet.
-- P0-04: Methodenclaim ist NICHT mehr per CLI ueberschreibbar; er wird aus einem
-  Prompt->Claim-Contract-Mapping abgeleitet und mit Prompt+Schema zu contract_sha256 gehasht.
-- Listen-Input-Guard (kein AttributeError bei Listen-P0).
-- Atomare Writes.
+Phase-2-Increment 1+2 zusaetzlich zu den Trust-Boundary-Fixes:
+- P1-02: Das P0-Envelope wird beim Laden gegen schemas/p0_units.schema.json
+  validiert (jsonschema); ungueltiges Envelope -> fail-closed, kein AttributeError.
+- P1-03: EINE kanonische Promptquelle. Der Prompt wird aus 10_GENERIC/p1_prompt.txt
+  geladen; Template und Modusbeispiele liegen gemeinsam in dieser Datei und werden
+  als ein Bundle gehasht. Fehlt die Datei oder ist das Bundle unvollstaendig, wird
+  fail-closed abgebrochen.
+- P1-04 (Increment 3): Provenance. Jeder Lauf traegt run_id, pro Unit Hashes des
+  vollstaendigen Inputobjekts und des effektiv gerenderten Prompts, Forschungsfrage-
+  und Codebuch-Hash sowie bei echten Laeufen einen verpflichtenden Modell-Digest.
+  Ungueltige Rohantworten koennen opt-in pfadbegrenzt und integritaetsgebunden in
+  eine Quarantaene geschrieben werden (--quarantine-dir).
+
+Weiterhin: Modus-Statemachine (validate_mode), Methodenclaim aus Contract (nicht
+per CLI), fail-closed, atomare Writes, grammatiktaugliches Ollama-Schema.
 
 Deps: pip install ollama jsonschema   ·   --dry-run baut/prueft ohne Ollama.
 """
 
 import argparse
-import copy
 import hashlib
 import json
 import math
 import os
+import re
 import sys
 import tempfile
+import uuid
 from datetime import datetime, timezone
+from importlib import metadata
 
-LIBRARY_VERSION = "0.3"
+try:
+    from jsonschema import Draft202012Validator
+    from jsonschema.exceptions import SchemaError
+except ImportError:
+    sys.stderr.write("FEHLER: jsonschema fehlt -> pip install jsonschema\n")
+    sys.exit(2)
+
+LIBRARY_VERSION = "0.4"
 CONTRACT_VERSION = "0.1"
 PROMPT_ID = "QDA-GEN-DESCRIPTIVE-CODING"
 PROMPT_VERSION = "1.1"
-# Der Claim ist an den Prompt/Contract gebunden, NICHT frei setzbar (P0-04).
-ALLOWED_METHOD_CLAIM = {
-    "QDA-GEN-DESCRIPTIVE-CODING": "GENERIC_SOURCE_NEAR_CONTROLLED_QDA_CODING",
-}
+ALLOWED_METHOD_CLAIM = {"QDA-GEN-DESCRIPTIVE-CODING": "GENERIC_SOURCE_NEAR_CONTROLLED_QDA_CODING"}
 
-EXAMPLE_OPEN = """{
-  "concise_description": "Familie ist noch in Damaskus; eine Belastung wird ausdrücklich benannt.",
-  "narrative_function": "EVALUATION",
-  "coding_decision": "CODES_ASSIGNED",
-  "descriptive_codes": [
-    {"code_label": "Familie in Damaskus", "definition": "Familie wird als weiterhin in Damaskus befindlich beschrieben", "status": "INDUCTIVE_CANDIDATE", "source_quote": "Meine Familie ist noch in Damaskus"},
-    {"code_label": "benannte Belastung", "definition": "eine Belastung wird ausdrücklich benannt", "status": "INDUCTIVE_CANDIDATE", "source_quote": "das belastet mich sehr"}
-  ],
-  "uncertainty": []
-}"""
+_HERE = os.path.dirname(os.path.abspath(__file__))
+PROMPT_PATH = os.path.join(_HERE, "..", "10_GENERIC", "p1_prompt.txt")
+P0_SCHEMA_PATH = os.path.join(_HERE, "..", "schemas", "p0_units.schema.json")
 
-EXAMPLE_CODEBOOK = """{
-  "concise_description": "Familie ist noch in Damaskus; eine Belastung wird ausdrücklich benannt.",
-  "narrative_function": "EVALUATION",
-  "coding_decision": "CODES_ASSIGNED",
-  "descriptive_codes": [
-    {"code_label": "Familienbindung", "definition": "im Codebuch: Bezug auf Angehörige", "status": "CODEBOOK_APPLIED", "source_quote": "Meine Familie ist noch in Damaskus"}
-  ],
-  "uncertainty": []
-}"""
+PROMPT_PLACEHOLDERS = (
+    "[[RESEARCH_QUESTION]]", "[[CODING_MODE]]", "[[CODEBOOK]]",
+    "[[UNIT_ID]]", "[[UNIT_TEXT]]",
+)
+PROMPT_EXAMPLE_TAGS = ("OPEN_EXAMPLE", "CODEBOOK_EXAMPLE")
+PROMPT_BLOCK_RE = re.compile(
+    r"\[\[(OPEN_EXAMPLE|CODEBOOK_EXAMPLE)\]\](.*?)\[\[/\1\]\]", re.DOTALL
+)
 
-BUILT_IN_PROMPT = """Du bist eine sorgfältige qualitative Forscherin. Kodiere GENAU EINE Quelleinheit \
-(source unit) quellennah auf Ebene 1 (Beschreibung). Nutze nur den Text der Einheit.
 
-WICHTIGSTE REGEL (gilt vor allen anderen):
-Kodiere ausschließlich manifest belegte Sachverhalte. Nur die source_quote muss \
-zeichengetreu kopiert werden. code_label und definition dürfen knapp paraphrasieren, \
-aber KEINE zusätzliche Information und KEINE latente Bedeutung einführen.
+class ContractInputError(ValueError):
+    """Deterministischer Fehler an einer lokalen Contract-/Input-Grenze."""
 
-EINSTELLUNGEN
-- Forschungsfrage: [[RESEARCH_QUESTION]]
-- Coding-Modus: [[CODING_MODE]]
-- Codebuch (nur diese Codes sind erlaubt, falls nicht "keins"): [[CODEBOOK]]
-- Ausgabesprache: Deutsch (Zitate immer in Originalsprache belassen)
 
-REGELN
-1. Bleib am manifesten Inhalt (beschrieben, getan, erlebt, berichtet, verglichen, bewertet, erinnert).
-2. Führe nichts Verstecktes ein: keine latente Bedeutung, keine Psyche, keine Identität/Resilienz/Trauma/Macht.
-3. Ein code_label paraphrasiert knapp; kein Ort/keine Kategorie/kein Begriff, der nicht im Text steht (aus "Damaskus" wird NICHT "Herkunftsland").
-4. Kopiere pro Code eine kurze source_quote ZEICHENGETREU aus der Einheit.
-5. Ton, Pause, Ironie, Emotion, Prosodie NICHT erschließen.
-6. Lieber KEIN Code als ein vager, abstrakter oder doppelter.
-7. Nur diese Einheit. Keine Aussage über das ganze Interview.
-8. coding_decision: CODES_ASSIGNED (>=1 Code) | NO_CODE_FITS (nur STRICT_CODEBOOK, codes []) | NOTHING_CODABLE (kein relevanter Inhalt, codes []).
-9. uncertainty ist eine Liste kurzer Punkte; sonst [].
+def extract_prompt_examples(template):
+    return {match.group(1): match.group(2).strip()
+            for match in PROMPT_BLOCK_RE.finditer(template)}
 
-MODUS-DETAILS
-- STRICT_CODEBOOK: NUR Codebuch-Codes (CODEBOOK_APPLIED/AMBIGUOUS). Kein neuer Code, kein INDUCTIVE_CANDIDATE. Passt keiner: codes [], coding_decision NO_CODE_FITS.
-- CONSTRAINED_EXTENSION: entweder Codebuch-Codes (Label aus dem Codebuch) ODER, wenn keiner passt, EIN INDUCTIVE_CANDIDATE. Nicht beides in einer Einheit. Kein NO_CODE_FITS.
-- OPEN_DESCRIPTIVE: kein Codebuch; alle Codes INDUCTIVE_CANDIDATE. Kein NO_CODE_FITS.
 
-AUSGABE
-Gib AUSSCHLIESSLICH ein einziges JSON-Objekt nach dem Schema zurück. Kein Text davor/danach, kein Markdown. \
-Erzeuge NICHT unit_id, source_range, explicit_speaker, quote_locator.
+def validate_prompt_bundle(template):
+    if not template.strip():
+        raise ContractInputError("p1_prompt.txt ist leer")
+    for placeholder in PROMPT_PLACEHOLDERS:
+        if template.count(placeholder) != 1:
+            raise ContractInputError(
+                f"p1_prompt.txt braucht genau einmal {placeholder}"
+            )
+    examples = extract_prompt_examples(template)
+    for tag in PROMPT_EXAMPLE_TAGS:
+        if template.count(f"[[{tag}]]") != 1 or template.count(f"[[/{tag}]]") != 1:
+            raise ContractInputError(
+                f"p1_prompt.txt braucht genau einen vollstaendigen {tag}-Block"
+            )
+        try:
+            example = json.loads(examples.get(tag, ""))
+        except json.JSONDecodeError as exc:
+            raise ContractInputError(
+                f"{tag} in p1_prompt.txt ist kein gueltiges JSON: {exc}"
+            ) from exc
+        if not isinstance(example, dict):
+            raise ContractInputError(f"{tag} in p1_prompt.txt muss ein JSON-Objekt sein")
+    return examples
 
-BEISPIEL (für den gewählten Modus)
-Quelleinheit: unit_id: S03, text: "Meine Familie ist noch in Damaskus, das belastet mich sehr."
-Ausgabe:
-[[EXAMPLE]]
 
-ZUR ERINNERUNG: nur die source_quote zeichengetreu, nichts Neues einführen, genau ein JSON-Objekt.
-
-QUELLEINHEIT
-unit_id: [[UNIT_ID]]
-text:
-[[UNIT_TEXT]]
-"""
+def load_prompt():
+    try:
+        with open(PROMPT_PATH, encoding="utf-8") as f:
+            template = f.read()
+    except OSError as exc:
+        raise ContractInputError(
+            f"kanonische Promptquelle nicht lesbar: {PROMPT_PATH}: {exc}"
+        ) from exc
+    validate_prompt_bundle(template)
+    return template, "file"
 
 
 def atomic_write(path, text):
@@ -107,32 +112,94 @@ def atomic_write(path, text):
     fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text); f.flush(); os.fsync(f.fileno())
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)
 
 
+def sha256_text(value):
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def canonical_json_sha256(value):
+    canonical = json.dumps(value, ensure_ascii=False, sort_keys=True,
+                           separators=(",", ":"))
+    return sha256_text(canonical)
+
+
+def quarantine_raw(quarantine_dir, run_id, unit_id, raw, status="INVALID_RESPONSE"):
+    """Persistiert eine ungueltige Rohantwort opt-in und pfadbegrenzt.
+
+    Dateinamen werden ausschliesslich aus Hashes abgeleitet; weder run_id noch
+    unit_id koennen den Zielpfad beeinflussen. Rueckgabe ist eine relative,
+    nicht-sensitive Referenz plus Hash der Rohantwort.
+    """
+    if not quarantine_dir or raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise ContractInputError("Quarantaene-Rohantwort muss Text sein")
+    try:
+        os.makedirs(quarantine_dir, mode=0o700, exist_ok=True)
+        root = os.path.realpath(os.path.abspath(quarantine_dir))
+        run_component = "run-" + sha256_text(str(run_id))[:32]
+        run_dir = os.path.join(root, run_component)
+        os.makedirs(run_dir, mode=0o700, exist_ok=True)
+        run_dir = os.path.realpath(run_dir)
+        if os.path.commonpath((root, run_dir)) != root:
+            raise ContractInputError("Quarantaene-Runordner liegt ausserhalb des Zielroots")
+        unit_component = "unit-" + sha256_text(str(unit_id)) + ".json"
+        path = os.path.realpath(os.path.join(run_dir, unit_component))
+        if os.path.commonpath((root, path)) != root:
+            raise ContractInputError("Quarantaene-Datei liegt ausserhalb des Zielroots")
+        raw_sha = sha256_text(raw)
+        payload = {
+            "run_id": run_id,
+            "unit_id": unit_id,
+            "status": status,
+            "raw_response_sha256": raw_sha,
+            "raw_response": raw,
+        }
+        atomic_write(path, json.dumps(payload, ensure_ascii=False, indent=2))
+    except OSError as exc:
+        raise ContractInputError(f"Quarantaene konnte nicht geschrieben werden: {exc}") from exc
+    return {"ref": os.path.relpath(path, root), "raw_response_sha256": raw_sha}
+
+
 def codebook_block(allowed_labels, defs):
     if not allowed_labels:
         return "keins"
-    return "; ".join(f"{l} = {defs.get(l, '')}".strip(" =") for l in allowed_labels)
+    return "; ".join(
+        f"{label} = {defs.get(label, '')}".strip(" =")
+        for label in allowed_labels
+    )
 
 
-def build_prompt(rq, mode, allowed_labels, defs, unit):
-    example = EXAMPLE_OPEN if mode == "OPEN_DESCRIPTIVE" else EXAMPLE_CODEBOOK
-    return (BUILT_IN_PROMPT
-            .replace("[[RESEARCH_QUESTION]]", rq or "explorative Analyse")
-            .replace("[[CODING_MODE]]", mode)
-            .replace("[[CODEBOOK]]", codebook_block(allowed_labels, defs))
-            .replace("[[EXAMPLE]]", example)
-            .replace("[[UNIT_ID]]", str(unit.get("unit_id", "?")))
-            .replace("[[UNIT_TEXT]]", unit.get("source_text", "")))
+def build_prompt(template, rq, mode, allowed_labels, defs, unit):
+    selected = "OPEN_EXAMPLE" if mode == "OPEN_DESCRIPTIVE" else "CODEBOOK_EXAMPLE"
+
+    def render_example(match):
+        return match.group(2).strip() if match.group(1) == selected else ""
+
+    prompt = PROMPT_BLOCK_RE.sub(render_example, template)
+    prompt = (prompt
+              .replace("[[RESEARCH_QUESTION]]", rq or "explorative Analyse")
+              .replace("[[CODING_MODE]]", mode)
+              .replace("[[CODEBOOK]]", codebook_block(allowed_labels, defs))
+              .replace("[[UNIT_ID]]", str(unit.get("unit_id", "?")))
+              .replace("[[UNIT_TEXT]]", unit.get("source_text", "")))
+    unresolved = sorted(set(re.findall(r"\[\[[A-Z_/]+\]\]", prompt)))
+    if unresolved:
+        raise ContractInputError(
+            "nicht aufgeloeste Promptmarker: " + ", ".join(unresolved)
+        )
+    return prompt
 
 
 def validate_mode(obj, mode, allowed_labels):
-    """Vollstaendige Modus-Statemachine (P0-03). Gibt Verletzungsgrund oder None."""
     dec = obj.get("coding_decision")
     codes = obj.get("descriptive_codes", [])
     statuses = [c.get("status") for c in codes]
@@ -150,20 +217,20 @@ def validate_mode(obj, mode, allowed_labels):
             if s != "INDUCTIVE_CANDIDATE":
                 return f"OPEN: Status '{s}' ohne Codebuch unzulaessig"
     elif mode == "STRICT_CODEBOOK":
-        for s, l in zip(statuses, labels):
-            if s == "INDUCTIVE_CANDIDATE":
-                return f"STRICT: induktiver Code '{l}' unzulaessig"
-            if allowed_labels is not None and l not in allowed_labels:
-                return f"STRICT: Code '{l}' nicht im Codebuch"
+        for status, label in zip(statuses, labels):
+            if status == "INDUCTIVE_CANDIDATE":
+                return f"STRICT: induktiver Code '{label}' unzulaessig"
+            if allowed_labels is not None and label not in allowed_labels:
+                return f"STRICT: Code '{label}' nicht im Codebuch"
     elif mode == "CONSTRAINED_EXTENSION":
         if dec == "NO_CODE_FITS":
             return "CONSTRAINED: statt NO_CODE_FITS einen INDUCTIVE_CANDIDATE bilden"
-        for s, l in zip(statuses, labels):
-            if s in ("CODEBOOK_APPLIED", "CODEBOOK_AMBIGUOUS") \
-                    and allowed_labels is not None and l not in allowed_labels:
-                return f"CONSTRAINED: Codebuch-Code '{l}' nicht im Codebuch"
+        for status, label in zip(statuses, labels):
+            if status in ("CODEBOOK_APPLIED", "CODEBOOK_AMBIGUOUS") \
+                    and allowed_labels is not None and label not in allowed_labels:
+                return f"CONSTRAINED: Codebuch-Code '{label}' nicht im Codebuch"
         if n_cb > 0 and n_ind > 0:
-            return "CONSTRAINED: kein Mischen von Codebuch-Code und induktivem Code in einer Einheit"
+            return "CONSTRAINED: kein Mischen von Codebuch-Code und induktivem Code"
         if n_ind > 1:
             return f"CONSTRAINED: mehr als ein induktiver Code ({n_ind})"
     return None
@@ -190,20 +257,101 @@ def bind_p0_fields(unit, model_obj):
             "descriptive_codes": codes, "uncertainty": model_obj.get("uncertainty", [])}
 
 
-def load_codebook(path):
-    with open(path, encoding="utf-8") as f:
-        cb = json.load(f)
-    labels, defs = [], {}
-    for item in cb:
+def parse_codebook(raw):
+    """Parst genau die gehashten Codebuchbytes in stabiler Dateireihenfolge."""
+    try:
+        cb = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ContractInputError(f"--codebook ist kein gueltiges JSON: {exc}") from exc
+    if not isinstance(cb, list):
+        raise ContractInputError("--codebook muss eine JSON-Liste sein")
+    labels, defs, seen = [], {}, set()
+    for pos, item in enumerate(cb, 1):
         if isinstance(item, str):
-            labels.append(item)
-        elif isinstance(item, dict) and "code_label" in item:
-            labels.append(item["code_label"]); defs[item["code_label"]] = item.get("definition", "")
-    return set(labels), defs
+            label, definition = item, ""
+        elif isinstance(item, dict):
+            label, definition = item.get("code_label"), item.get("definition", "")
+        else:
+            raise ContractInputError(f"Codebuch-Eintrag {pos} ist weder String noch Objekt")
+        if not isinstance(label, str) or not label.strip():
+            raise ContractInputError(f"Codebuch-Eintrag {pos} hat kein nicht-leeres code_label")
+        if not isinstance(definition, str):
+            raise ContractInputError(f"Codebuch-Definition fuer '{label}' muss Text sein")
+        if label in seen:
+            raise ContractInputError(f"Codebuch enthaelt doppeltes Label '{label}'")
+        seen.add(label)
+        labels.append(label)
+        defs[label] = definition
+    return labels, defs
+
+
+def resolve_model_provenance(ollama_module, model):
+    """Bindet einen echten Lauf zwingend an den lokalen Modell-Digest."""
+    try:
+        models = ollama_module.list().get("models", [])
+    except Exception as exc:  # Backendfehler werden an der Contract-Grenze vereinheitlicht
+        raise ContractInputError(f"Ollama-Modellliste nicht lesbar: {exc}") from exc
+    match = next((entry for entry in models
+                  if entry.get("model") == model or entry.get("name") == model), None)
+    digest = match.get("digest") if match is not None else None
+    if not isinstance(digest, str) or not digest.strip():
+        raise ContractInputError(
+            f"Modell '{model}' ist nicht mit einem konkreten Ollama-Digest aufloesbar"
+        )
+    quantization = None
+    try:
+        details = ollama_module.show(model).get("details") or {}
+        quantization = details.get("quantization_level")
+    except Exception:  # Quantisierung ist Zusatzinfo; der Digest bleibt bindend.
+        quantization = None
+    return quantization, digest
+
+
+def load_p0(path):
+    """Laedt + validiert das P0-Envelope (fail-closed). Rueckgabe: (units, p0_meta)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            p0 = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContractInputError(f"P0-Envelope nicht lesbar/kein JSON: {exc}") from exc
+    if not isinstance(p0, dict):
+        raise ContractInputError(
+            "P0-Input muss das versionierte Objekt-Envelope mit meta und source_units sein"
+        )
+    try:
+        with open(P0_SCHEMA_PATH, encoding="utf-8") as f:
+            p0_schema = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContractInputError(
+            f"verbindliches P0-Schema nicht lesbar/ungueltig: {P0_SCHEMA_PATH}: {exc}"
+        ) from exc
+    try:
+        Draft202012Validator.check_schema(p0_schema)
+    except SchemaError as exc:
+        raise ContractInputError(f"p0_units.schema.json ist selbst ungueltig: {exc}") from exc
+    errs = sorted(Draft202012Validator(p0_schema).iter_errors(p0),
+                  key=lambda e: list(e.path))
+    if errs:
+        detail = "; ".join(e.message for e in errs[:5])
+        raise ContractInputError(
+            f"P0-Envelope verletzt p0_units.schema.json: {detail}"
+        )
+
+    units, meta = p0["source_units"], p0["meta"]
+    if meta["n_units"] != len(units):
+        raise ContractInputError(
+            f"P0 meta.n_units={meta['n_units']} stimmt nicht mit source_units={len(units)} ueberein"
+        )
+    unit_ids = [unit["unit_id"] for unit in units]
+    if len(unit_ids) != len(set(unit_ids)):
+        raise ContractInputError("P0 source_units enthalten doppelte unit_id")
+    if any(unit["source_type"] != meta["source_type"] for unit in units):
+        raise ContractInputError("P0 source_type ist zwischen meta und source_units inkonsistent")
+    return units, meta
 
 
 def main():
-    ap = argparse.ArgumentParser(description="QDA P1 Runner (fail-closed, Modus + Claim erzwungen).")
+    ap = argparse.ArgumentParser(description="QDA P1 Runner (fail-closed).")
     ap.add_argument("--units", required=True)
     ap.add_argument("--schema", required=True)
     ap.add_argument("--model", default="gemma3n:e4b")
@@ -220,40 +368,52 @@ def main():
     ap.add_argument("--token-ratio", type=float, default=3.2)
     ap.add_argument("--reserve-output-tokens", type=int, default=768)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--quarantine-dir",
+                    help="Opt-in: Zielordner fuer ungueltige Rohantworten (sonst nicht persistiert).")
     args = ap.parse_args()
-    # KEIN --method-claim: der Claim ist vertraglich gebunden (P0-04).
+    run_id = uuid.uuid4().hex
 
     claim = ALLOWED_METHOD_CLAIM[PROMPT_ID]
-
-    with open(args.units, encoding="utf-8") as f:
-        p0 = json.load(f)
-    if isinstance(p0, list):
-        units, p0_meta = p0, {}
-    elif isinstance(p0, dict):
-        units, p0_meta = p0.get("source_units", []), p0.get("meta", {})
-    else:
-        sys.stderr.write("ABBRUCH: P0-Input ist weder Liste noch Objekt.\n"); sys.exit(2)
+    try:
+        units, p0_meta = load_p0(args.units)
+        template, prompt_source = load_prompt()
+    except ContractInputError as exc:
+        sys.stderr.write(f"ABBRUCH: {exc}\n")
+        sys.exit(2)
     if not units or not all(isinstance(u, dict) and u.get("source_text") for u in units):
-        sys.stderr.write("ABBRUCH: P0-Units fehlen oder haben keinen source_text.\n"); sys.exit(2)
+        sys.stderr.write("ABBRUCH: P0-Units fehlen oder haben keinen source_text.\n")
+        sys.exit(2)
 
     with open(args.schema, encoding="utf-8") as f:
         full_schema = json.load(f)
     grammar = grammar_schema(full_schema)
 
-    allowed_labels, defs = None, {}
+    allowed_labels, defs, codebook_sha = None, {}, None
     if args.codebook:
-        raw = open(args.codebook, encoding="utf-8").read()
-        if len(raw) > args.max_codebook_chars:
-            sys.stderr.write(f"ABBRUCH: Codebuch zu gross ({len(raw)}).\n"); sys.exit(2)
         try:
-            allowed_labels, defs = load_codebook(args.codebook)
-        except (json.JSONDecodeError, TypeError):
-            sys.stderr.write("ABBRUCH: --codebook muss JSON sein.\n"); sys.exit(2)
+            with open(args.codebook, "rb") as f:
+                raw_bytes = f.read()
+            raw = raw_bytes.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            sys.stderr.write(f"ABBRUCH: --codebook nicht als UTF-8 lesbar: {exc}\n")
+            sys.exit(2)
+        if len(raw) > args.max_codebook_chars:
+            sys.stderr.write(f"ABBRUCH: Codebuch zu gross ({len(raw)}).\n")
+            sys.exit(2)
+        codebook_sha = hashlib.sha256(raw_bytes).hexdigest()
+        try:
+            allowed_labels, defs = parse_codebook(raw)
+        except ContractInputError as exc:
+            sys.stderr.write(f"ABBRUCH: {exc}\n")
+            sys.exit(2)
     if args.mode in ("STRICT_CODEBOOK", "CONSTRAINED_EXTENSION") and not allowed_labels:
-        sys.stderr.write(f"ABBRUCH: Modus {args.mode} braucht --codebook (JSON).\n"); sys.exit(2)
+        sys.stderr.write(f"ABBRUCH: Modus {args.mode} braucht --codebook (JSON).\n")
+        sys.exit(2)
 
     schema_sha = hashlib.sha256(json.dumps(full_schema, sort_keys=True).encode()).hexdigest()
-    prompt_sha = hashlib.sha256(BUILT_IN_PROMPT.encode()).hexdigest()
+    prompt_sha = hashlib.sha256(template.encode()).hexdigest()
+    effective_research_question = args.research_question or "explorative Analyse"
+    research_question_sha = sha256_text(effective_research_question)
     contract_sha = hashlib.sha256(json.dumps(
         {"prompt_id": PROMPT_ID, "prompt_version": PROMPT_VERSION,
          "schema_sha256": schema_sha, "prompt_sha256": prompt_sha,
@@ -261,62 +421,103 @@ def main():
 
     budget = args.num_ctx - args.reserve_output_tokens
     results, statuses = [], []
-    validator = chat = None
-    model_quant = None
+    validator = Draft202012Validator(full_schema)
+    chat = None
+    model_quant = model_digest = None
+    try:
+        backend_client_version = metadata.version("ollama")
+    except metadata.PackageNotFoundError:
+        backend_client_version = None
     if not args.dry_run:
-        try:
-            from jsonschema import Draft202012Validator
-            validator = Draft202012Validator(full_schema)
-        except ImportError:
-            sys.stderr.write("FEHLER: jsonschema fehlt.\n"); sys.exit(2)
         try:
             import ollama
             chat = ollama.chat
             try:
-                model_quant = ollama.show(args.model).get("details", {}).get("quantization_level")
-            except Exception:  # noqa: BLE001
-                model_quant = None
+                model_quant, model_digest = resolve_model_provenance(ollama, args.model)
+            except ContractInputError as exc:
+                sys.stderr.write(f"ABBRUCH: {exc}\n")
+                sys.exit(2)
         except ImportError:
-            sys.stderr.write("FEHLER: ollama fehlt.\n"); sys.exit(2)
+            sys.stderr.write("FEHLER: ollama fehlt.\n")
+            sys.exit(2)
 
     for unit in units:
-        prompt = build_prompt(args.research_question, args.mode, allowed_labels, defs, unit)
+        try:
+            prompt = build_prompt(template, args.research_question, args.mode,
+                                  allowed_labels, defs, unit)
+        except ContractInputError as exc:
+            sys.stderr.write(f"ABBRUCH: {exc}\n")
+            sys.exit(2)
         tok = math.ceil(len(prompt) / args.token_ratio)
-        st = {"unit_id": unit.get("unit_id"), "approx_prompt_tokens": tok, "budget": budget}
+        st = {"unit_id": unit.get("unit_id"),
+              "unit_input_sha256": canonical_json_sha256(unit),
+              "rendered_prompt_sha256": sha256_text(prompt),
+              "approx_prompt_tokens": tok, "budget": budget}
         if tok > budget:
-            st["status"] = "SKIPPED_OVER_BUDGET"; statuses.append(st); continue
+            st["status"] = "SKIPPED_OVER_BUDGET"
+            statuses.append(st)
+            continue
         if args.dry_run:
-            st["status"] = "DRY_RUN_OK"; statuses.append(st); continue
+            st["status"] = "DRY_RUN_OK"
+            statuses.append(st)
+            continue
+        raw = None
+
+        def _quar(status):  # ungueltige Rohantwort opt-in in Quarantaene
+            try:
+                ref = quarantine_raw(args.quarantine_dir, run_id,
+                                     unit.get("unit_id"), raw, status)
+            except ContractInputError as exc:
+                sys.stderr.write(f"ABBRUCH: {exc}\n")
+                sys.exit(2)
+            if ref:
+                st["quarantine"] = ref
+
         try:
             resp = chat(model=args.model, messages=[{"role": "user", "content": prompt}],
                         format=grammar,
                         options={"temperature": args.temperature, "top_p": args.top_p,
                                  "num_ctx": args.num_ctx, "seed": args.seed})
-            obj = json.loads(resp["message"]["content"])
+            raw = resp["message"]["content"]
+            obj = json.loads(raw)
             errs = sorted(validator.iter_errors(obj), key=lambda e: list(e.path))
             if errs:
                 st.update(status="SCHEMA_INVALID", errors=[e.message for e in errs[:5]])
-                statuses.append(st); continue
+                _quar("SCHEMA_INVALID")
+                statuses.append(st)
+                continue
             mv = validate_mode(obj, args.mode, allowed_labels)
             if mv:
-                st.update(status="MODE_VIOLATION", reason=mv); statuses.append(st); continue
+                st.update(status="MODE_VIOLATION", reason=mv)
+                _quar("MODE_VIOLATION")
+                statuses.append(st)
+                continue
             results.append(bind_p0_fields(unit, obj))
-            st["status"] = "OK"; statuses.append(st)
+            st["status"] = "OK"
+            statuses.append(st)
         except json.JSONDecodeError as e:
-            st.update(status="NOT_JSON", reason=str(e)); statuses.append(st)
+            st.update(status="NOT_JSON", reason=str(e))
+            _quar("NOT_JSON")
+            statuses.append(st)
         except Exception as e:  # noqa: BLE001
-            st.update(status="ERROR", reason=str(e)); statuses.append(st)
+            st.update(status="ERROR", reason=str(e))
+            statuses.append(st)
 
     ok = {"OK", "DRY_RUN_OK"}
     n_ok = sum(1 for s in statuses if s.get("status") in ok)
     all_ok = bool(units) and all(s.get("status") in ok for s in statuses)
     manifest = {
-        "runner_id": "QDA-P1-RUNNER", "library_version": LIBRARY_VERSION,
+        "runner_id": "QDA-P1-RUNNER", "run_id": run_id, "library_version": LIBRARY_VERSION,
         "contract_version": CONTRACT_VERSION, "contract_sha256": contract_sha,
         "prompt_id": PROMPT_ID, "prompt_version": PROMPT_VERSION, "prompt_sha256": prompt_sha,
-        "schema_sha256": schema_sha, "allowed_method_claim": claim,
-        "model": args.model, "model_quantization": model_quant, "backend": "ollama",
+        "prompt_source": prompt_source, "schema_sha256": schema_sha, "allowed_method_claim": claim,
+        "model": args.model, "model_quantization": model_quant, "model_digest": model_digest,
+        "backend": "ollama", "backend_client_version": backend_client_version,
         "mode": args.mode, "codebook_size": (len(allowed_labels) if allowed_labels else 0),
+        "codebook_sha256": codebook_sha,
+        "research_question_sha256": research_question_sha,
+        "provenance_level": "DRY_RUN" if args.dry_run else "MODEL_BOUND",
+        "quarantine_enabled": bool(args.quarantine_dir),
         "runtime": {"temperature": args.temperature, "top_p": args.top_p,
                     "num_ctx": args.num_ctx, "seed": args.seed},
         "source_sha256": p0_meta.get("source_sha256"),
@@ -327,7 +528,7 @@ def main():
     if args.out:
         atomic_write(args.out, json.dumps({"_qda_run": manifest, "results": results},
                                           ensure_ascii=False, indent=2))
-    sys.stderr.write(f"units={len(units)} ok={n_ok} all_ok={all_ok}\n")
+    sys.stderr.write(f"units={len(units)} ok={n_ok} all_ok={all_ok} prompt={prompt_source}\n")
     if args.dry_run or not args.out:
         print(json.dumps({"_qda_run": manifest}, ensure_ascii=False, indent=2))
     sys.exit(0 if all_ok else 1)

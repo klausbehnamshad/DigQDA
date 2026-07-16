@@ -21,7 +21,12 @@
         "type": "object",
         "required": ["unit_id", "source_type", "source_range", "source_text"],
         "properties": {
-          "unit_id": {"type": "string", "minLength": 1},
+          "unit_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+          },
           "source_type": {"type": "string", "enum": ["srt", "txt"]},
           "source_range": {"type": "string", "minLength": 1},
           "explicit_speaker": {"type": "string"},

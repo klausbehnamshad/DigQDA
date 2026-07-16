@@ -1,6 +1,6 @@
-# VERBA Governance
+# DigQDA Governance
 
-VERBA uses lightweight **method governance**, not data governance. It governs
+DigQDA uses lightweight **method governance**, not data governance. It governs
 contracts, prompts, schemas, validators, claims and releases. A consuming system
 governs research data and authorized execution.
 

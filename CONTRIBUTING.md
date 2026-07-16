@@ -1,7 +1,7 @@
 # Contributing
 
-Contributions are welcome after the first public license is selected. Until
-then, use issues or review notes rather than submitting reusable code.
+Contributions are welcome under the repository's MIT license. Before the first
+public release, coordinate larger changes through issues or review notes.
 
 For code or contract changes:
 

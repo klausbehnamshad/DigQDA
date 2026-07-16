@@ -8,10 +8,14 @@ zero evidence (P0-01), unbound (P0-02), mode-SM (P0-03), claim nicht überschrei
 Aufruf: python3 run_tests.py    (Deps: rapidfuzz, jsonschema)
 """
 
+import hashlib
 import json
 import os
 import subprocess
 import sys
+import tempfile
+
+from jsonschema import Draft202012Validator
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 UTIL = os.path.dirname(HERE)
@@ -19,15 +23,19 @@ GEN = os.path.join(os.path.dirname(UTIL), "10_GENERIC")
 FIX = os.path.join(HERE, "fixtures")
 PY = sys.executable
 sys.path.insert(0, UTIL)
+import qda_run_p1 as R  # noqa: E402
+
 PASS = FAIL = 0
 
 
 def check(name, cond, detail=""):
     global PASS, FAIL
     if cond:
-        PASS += 1; print(f"  PASS  {name}")
+        PASS += 1
+        print(f"  PASS  {name}")
     else:
-        FAIL += 1; print(f"  FAIL  {name}  {detail}")
+        FAIL += 1
+        print(f"  FAIL  {name}  {detail}")
 
 
 def run(cmd):
@@ -68,10 +76,15 @@ check("Verdict REVIEW_REQUIRED", res["verdict"] == "REVIEW_REQUIRED")
 check("Exit 1", rc == 1)
 
 print("T4  Schema-Vertrag")
-from jsonschema import Draft202012Validator
 schema = json.load(open(os.path.join(GEN, "p1_schema.json"), encoding="utf-8"))
 v = Draft202012Validator(schema)
-val = lambda fn: not list(v.iter_errors(json.load(open(os.path.join(FIX, fn), encoding="utf-8"))))
+
+
+def val(fn):
+    with open(os.path.join(FIX, fn), encoding="utf-8") as f:
+        return not list(v.iter_errors(json.load(f)))
+
+
 check("gutes Beispiel valide", val("p1_good.json"))
 check("Extra-Feld abgelehnt", not val("p1_bad_extra.json"))
 check("fehlendes required abgelehnt", not val("p1_bad_missing.json"))
@@ -81,7 +94,6 @@ check("NOTHING_CODABLE + Codes abgelehnt", not val("p1_bad_nothing_with_codes.js
 check("leere source_quote abgelehnt", not val("p1_bad_emptystr.json"))
 
 print("T5  Runner --dry-run OK + Provenance")
-import qda_run_p1 as R
 units_file = os.path.join(HERE, "_tmp_units.json")
 json.dump(d1, open(units_file, "w", encoding="utf-8"), ensure_ascii=False)
 schema_file = os.path.join(GEN, "p1_schema.json")
@@ -105,8 +117,11 @@ m2, rc2 = run_p1("--num-ctx", "300", "--reserve-output-tokens", "100")
 check("SKIPPED_OVER_BUDGET", m2["statuses"][0]["status"] == "SKIPPED_OVER_BUDGET")
 check("Exit 1", rc2 == 1)
 
-print("T7  Reales Built-in-Beispiel schema-valide & quellentreu")
-ex_open, ex_cb = json.loads(R.EXAMPLE_OPEN), json.loads(R.EXAMPLE_CODEBOOK)
+print("T7  Beispiele aus kanonischem Prompt-Bundle schema-valide & quellentreu")
+prompt_bundle, _ = R.load_prompt()
+prompt_examples = R.extract_prompt_examples(prompt_bundle)
+ex_open = json.loads(prompt_examples["OPEN_EXAMPLE"])
+ex_cb = json.loads(prompt_examples["CODEBOOK_EXAMPLE"])
 check("EXAMPLE_OPEN valide", not list(v.iter_errors(ex_open)))
 check("EXAMPLE_CODEBOOK valide", not list(v.iter_errors(ex_cb)))
 tmp_ex = os.path.join(HERE, "_tmp_example.json")
@@ -148,7 +163,8 @@ check("CONSTRAINED lehnt Mischen ab", R.validate_mode(mix, "CONSTRAINED_EXTENSIO
 check("CONSTRAINED lehnt >1 induktiv ab", R.validate_mode(two_ind, "CONSTRAINED_EXTENSION", allowed) is not None)
 
 print("T11  grammar_schema fuer Ollama")
-g = R.grammar_schema(schema); gs = json.dumps(g)
+g = R.grammar_schema(schema)
+gs = json.dumps(g)
 check("kein allOf/if/then", not any(k in g for k in ("allOf", "if", "then")))
 check("kein minLength/minItems", "minLength" not in gs and "minItems" not in gs)
 check("enum/additionalProperties bleiben", '"enum"' in gs and "additionalProperties" in gs)
@@ -219,6 +235,162 @@ print("T17  P0-06 malformed SRT fail-closed")
 r_bad = run([os.path.join(UTIL, "qda_segment.py"), "--source", os.path.join(FIX, "malformed.srt")])
 check("Abbruch mit Exit != 0", r_bad.returncode != 0, f"rc={r_bad.returncode}")
 check("kein Output-JSON auf stdout", r_bad.stdout.strip() == "")
+
+print("T23  Phase2/P1-02 P0-Envelope-Validierung (fail-closed)")
+r_env = run([os.path.join(UTIL, "qda_run_p1.py"), "--units", os.path.join(FIX, "p0_bad_envelope.json"),
+             "--schema", schema_file, "--dry-run"])
+check("ungueltiges P0-Envelope -> Exit 2", r_env.returncode == 2, f"rc={r_env.returncode}")
+
+print("T24  Phase2/P1-03 kanonische Promptquelle")
+m24, rc24 = run_p1("--num-ctx", "8192")
+check("Prompt kommt aus der Datei", m24["prompt_source"] == "file", m24.get("prompt_source"))
+_ptxt = open(os.path.join(GEN, "p1_prompt.txt"), encoding="utf-8").read()
+check("prompt_sha256 == Hash des vollstaendigen p1_prompt.txt-Bundles",
+      m24["prompt_sha256"] == hashlib.sha256(_ptxt.encode()).hexdigest())
+check("keine eingebetteten Prompt-/Beispiel-Fallbacks im Runner",
+      not any(hasattr(R, name) for name in ("_FALLBACK_PROMPT", "EXAMPLE_OPEN", "EXAMPLE_CODEBOOK")))
+rendered_open = R.build_prompt(_ptxt, "", "OPEN_DESCRIPTIVE", None, {},
+                               {"unit_id": "S01", "source_text": "Text"})
+rendered_cb = R.build_prompt(_ptxt, "", "STRICT_CODEBOOK", {"Familienbindung"},
+                             {"Familienbindung": "Definition"},
+                             {"unit_id": "S01", "source_text": "Text"})
+check("Modus rendert genau sein Beispiel",
+      '"code_label": "Familie in Damaskus"' in rendered_open
+      and '"code_label": "Familienbindung"' not in rendered_open
+      and '"code_label": "Familienbindung"' in rendered_cb
+      and '"code_label": "Familie in Damaskus"' not in rendered_cb)
+check("gerenderter Prompt enthaelt keine Contract-Marker", "[[" not in rendered_open and "[[" not in rendered_cb)
+
+print("T25  Phase2 P0-Envelope ist zwingend ein schema-validiertes Objekt")
+r_list = run([os.path.join(UTIL, "qda_run_p1.py"), "--units", os.path.join(FIX, "p0_list_input.json"),
+              "--schema", schema_file, "--dry-run"])
+check("Legacy-Listeninput -> Exit 2", r_list.returncode == 2, f"rc={r_list.returncode}")
+check("Listeninput erzeugt kein Manifest", r_list.stdout.strip() == "")
+
+print("T26  Fehlendes P0-Schema ist fail-closed")
+_old_p0_schema = R.P0_SCHEMA_PATH
+R.P0_SCHEMA_PATH = os.path.join(FIX, "does-not-exist.schema.json")
+try:
+    try:
+        R.load_p0(units_file)
+        missing_schema_closed = False
+    except R.ContractInputError:
+        missing_schema_closed = True
+finally:
+    R.P0_SCHEMA_PATH = _old_p0_schema
+check("fehlendes verbindliches Schema -> ContractInputError", missing_schema_closed)
+
+print("T27  Fehlende kanonische Promptquelle ist fail-closed")
+_old_prompt_path = R.PROMPT_PATH
+R.PROMPT_PATH = os.path.join(FIX, "does-not-exist.prompt.txt")
+try:
+    try:
+        R.load_prompt()
+        missing_prompt_closed = False
+    except R.ContractInputError:
+        missing_prompt_closed = True
+finally:
+    R.PROMPT_PATH = _old_prompt_path
+check("fehlende Promptdatei -> ContractInputError", missing_prompt_closed)
+
+print("T28  P0-Envelope-Konsistenz wird geprueft")
+bad_consistency = json.loads(json.dumps(d1))
+bad_consistency["meta"]["n_units"] += 1
+tmp_bad_consistency = os.path.join(HERE, "_tmp_bad_consistency.json")
+json.dump(bad_consistency, open(tmp_bad_consistency, "w", encoding="utf-8"), ensure_ascii=False)
+try:
+    try:
+        R.load_p0(tmp_bad_consistency)
+        consistency_closed = False
+    except R.ContractInputError:
+        consistency_closed = True
+finally:
+    os.remove(tmp_bad_consistency)
+check("meta.n_units-Mismatch -> ContractInputError", consistency_closed)
+
+print("T29  Phase2/P1-04 vollstaendige Provenance")
+m29, _ = run_p1("--num-ctx", "8192")
+check("Manifest traegt run_id", isinstance(m29.get("run_id"), str) and len(m29["run_id"]) >= 16)
+exp_in = R.canonical_json_sha256(d1["source_units"][0])
+check("Unit-Status hasht das vollstaendige kanonische Unit-Objekt",
+      m29["statuses"][0].get("unit_input_sha256") == exp_in)
+exp_prompt = R.build_prompt(_ptxt, "", "OPEN_DESCRIPTIVE", None, {}, d1["source_units"][0])
+check("Unit-Status hasht den effektiv gerenderten Prompt",
+      m29["statuses"][0].get("rendered_prompt_sha256") == R.sha256_text(exp_prompt))
+m29_rq, _ = run_p1("--research-question", "Welche Erfahrung wird beschrieben?")
+check("Forschungsfrage wird ohne Klartext im Manifest gebunden",
+      m29_rq.get("research_question_sha256") == R.sha256_text("Welche Erfahrung wird beschrieben?"))
+m29b, _ = run_p1("--mode", "CONSTRAINED_EXTENSION", "--codebook", os.path.join(FIX, "codebook.json"))
+exp_cb = hashlib.sha256(open(os.path.join(FIX, "codebook.json"), "rb").read()).hexdigest()
+check("Manifest traegt codebook_sha256", m29b.get("codebook_sha256") == exp_cb)
+check("run_id ist pro Lauf eindeutig", m29["run_id"] != m29b["run_id"])
+check("Dry-run ist explizit nicht als modellgebundener Lauf markiert",
+      m29.get("provenance_level") == "DRY_RUN" and m29.get("model_digest") is None)
+labels, definitions = R.parse_codebook('[{"code_label":"Beta"},{"code_label":"Alpha"}]')
+check("Codebuch-Reihenfolge ist deterministisch an die Datei gebunden",
+      labels == ["Beta", "Alpha"] and R.codebook_block(labels, definitions) == "Beta; Alpha")
+check("quarantine_raw ohne Ziel -> None (kein implizites Persistieren)",
+      R.quarantine_raw(None, m29["run_id"], "S01", "roh") is None)
+
+print("T30  Quarantaene ist opt-in, pfadbegrenzt und integritaetsgebunden")
+with tempfile.TemporaryDirectory(dir=HERE) as quarantine_dir:
+    qref = R.quarantine_raw(quarantine_dir, m29["run_id"],
+                            "../../escape", "sensible Rohantwort", "NOT_JSON")
+    qpath = os.path.realpath(os.path.join(quarantine_dir, qref["ref"]))
+    qroot = os.path.realpath(quarantine_dir)
+    check("malicious unit_id bleibt innerhalb des Quarantaene-Roots",
+          os.path.commonpath((qroot, qpath)) == qroot)
+    check("Dateiname enthaelt keine unit_id/Pfadsegmente",
+          "escape" not in os.path.basename(qpath) and ".." not in qref["ref"])
+    qpayload = json.load(open(qpath, encoding="utf-8"))
+    check("Quarantaene bindet Status, Unit und Raw-Hash",
+          qpayload["status"] == "NOT_JSON"
+          and qpayload["unit_id"] == "../../escape"
+          and qpayload["raw_response_sha256"] == R.sha256_text("sensible Rohantwort")
+          and qref["raw_response_sha256"] == qpayload["raw_response_sha256"])
+
+print("T31  Echte Modelllaeufe brauchen einen konkreten Digest")
+class FakeOllama:
+    @staticmethod
+    def list():
+        return {"models": [{"model": "model:test", "digest": "sha256:abc123"}]}
+
+    @staticmethod
+    def show(_model):
+        return {"details": {"quantization_level": "Q4_K_M"}}
+
+
+quant, digest = R.resolve_model_provenance(FakeOllama, "model:test")
+check("Modell-Digest und Quantisierung werden gebunden",
+      digest == "sha256:abc123" and quant == "Q4_K_M")
+
+class MissingDigestOllama:
+    @staticmethod
+    def list():
+        return {"models": [{"model": "model:test", "digest": None}]}
+
+
+try:
+    R.resolve_model_provenance(MissingDigestOllama, "model:test")
+    missing_digest_closed = False
+except R.ContractInputError:
+    missing_digest_closed = True
+check("fehlender Modell-Digest ist fail-closed", missing_digest_closed)
+
+print("T32  P0 unit_id ist ein pfadsicherer opaker Identifier")
+bad_unit_id = json.loads(json.dumps(d1))
+bad_unit_id["source_units"][0]["unit_id"] = "../../escape"
+tmp_bad_unit_id = os.path.join(HERE, "_tmp_bad_unit_id.json")
+json.dump(bad_unit_id, open(tmp_bad_unit_id, "w", encoding="utf-8"), ensure_ascii=False)
+try:
+    try:
+        R.load_p0(tmp_bad_unit_id)
+        unsafe_unit_closed = False
+    except R.ContractInputError:
+        unsafe_unit_closed = True
+finally:
+    os.remove(tmp_bad_unit_id)
+check("unit_id mit Pfadsegmenten wird am Envelope abgewiesen", unsafe_unit_closed)
 
 os.remove(units_file)
 print(f"\n{'='*48}\n  {PASS} PASS  /  {FAIL} FAIL\n{'='*48}")

@@ -1,4 +1,4 @@
-# VERBA Method Catalog
+# DigQDA Method Catalog
 
 Eine methodisch getrennte Promptbibliothek für computergestützte qualitative
 Datenanalyse. Die Bibliothek ist unabhängig von einer bestimmten Consumer-
@@ -193,7 +193,7 @@ Minor-Version präzisiert Formulierungen, ohne den Methodenclaim zu verändern.
 ## Bibliotheksstruktur
 
 ```text
-QDA-Prompt-Library/
+DigQDA/
 ├── README.md
 ├── 00_CORE/
 ├── 10_GENERIC/
@@ -242,7 +242,7 @@ stehen bis zur Ausarbeitung ausschließlich im Katalog dieses README.
 | `90_UTILITIES/qda_segment.py` | DRAFT | P0: deterministische Segmentierung (SRT/TXT) |
 | `90_UTILITIES/qda_validate.py` | DRAFT | Validator: Zitat-in-Einheit + Locator, fail-closed |
 | `90_UTILITIES/qda_run_p1.py` | DRAFT | P1-Runner (Ollama), Modus erzwungen, fail-closed |
-| `90_UTILITIES/tests/run_tests.py` | DRAFT | Conformance-Suite (44 Checks); `pip install -r requirements.txt` |
+| `90_UTILITIES/tests/run_tests.py` | DRAFT | Conformance-Suite (93 Checks); `pip install -r requirements.txt` |
 
 Hinweis: Der Monolith trägt intern noch `TECHNICAL_VALIDATION: NONE`. Für die
 dekomponierte P1-Linie gilt `TECHNICAL_VALIDATION: REQUIRED` — die Prüfung

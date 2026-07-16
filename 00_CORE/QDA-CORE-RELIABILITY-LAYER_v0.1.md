@@ -137,10 +137,14 @@ einer Methodenteil-Fußnote zitierfähig — passend zu deinem Anspruch.
 
 ```text
 run_manifest:
-  prompt_id / version
+  run_id
+  prompt_id / version / prompt_sha256 / contract_sha256
   model_name + digest + quantisierung   (z.B. gemma3n:e4b, q4_K_M)
   runtime: temperature, top_p, num_ctx, seed
-  input_sha256                          (Hash der Originalquelle)
+  source_sha256                         (Hash der Originalquelle)
+  unit_input_sha256                     (kanonisches vollständiges Unit-Objekt)
+  rendered_prompt_sha256                (effektiver Prompt je Unit)
+  research_question_sha256 + codebook_sha256
   timestamp
   validator_version + validator_result  (siehe §5)
   allowed_method_claim                  (übernommen aus dem Steckbrief)

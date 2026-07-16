@@ -3,7 +3,7 @@
 - [ ] Confirm final name and repository slug.
 - [ ] Search project/package registries and relevant scholarly indexes for name collisions.
 - [ ] Confirm maintainers, authorship order and ORCID identifiers.
-- [ ] Select and add an explicit software/documentation license.
+- [x] Select and add an explicit software/documentation license (MIT).
 - [ ] Add and validate `CITATION.cff`.
 - [ ] Declare repository URL and public security contact.
 - [ ] Run the conformance suite in clean Python environments.

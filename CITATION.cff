@@ -3,7 +3,7 @@
 # GitHub rendert daraus automatisch einen "Cite this repository"-Button.
 cff-version: 1.2.0
 message: "Wenn Sie dieses Werkzeug verwenden, zitieren Sie es bitte wie folgt."
-title: "<NAME> — a method-contract toolkit for evidence-bound qualitative analysis with local language models"
+title: "DigQDA — Digital QDA (AI-assisted): evidence-bound qualitative data analysis with local models"
 abstract: >-
   An open, versioned method-contract toolkit for evidence-bound qualitative
   data analysis (QDA) with local language models. The model proposes;
@@ -17,9 +17,9 @@ authors:
     orcid: "https://orcid.org/0000-0000-0000-0000"   # TODO
     affiliation: "TODO — siehe Urheber-/Trägerschaftsfrage (Person vs. Universität)"
   # - weitere Autor:innen / Contributor:innen hier ergänzen
-version: "0.2.0"                 # TODO: an den Release-Tag anpassen
-date-released: "2026-07-15"      # TODO: Release-Datum
-license: "Apache-2.0"            # TODO: nach Lizenzentscheidung (siehe LICENSING.md)
+version: "0.4.0"                 # TODO: an den Release-Tag anpassen
+# date-released: erst beim ersten oeffentlichen Release setzen (derzeit unveroeffentlicht)
+license: "MIT"
 repository-code: "https://github.com/TODO-org/TODO-repo"
 keywords:
   - qualitative data analysis

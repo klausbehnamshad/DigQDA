@@ -8,3 +8,5 @@ venv/
 .mypy_cache/
 .ruff_cache/
 90_UTILITIES/tests/_tmp_*.json
+# Opt-in Rohantwort-Quarantaene; kann sensible Forschungsdaten enthalten.
+quarantine/

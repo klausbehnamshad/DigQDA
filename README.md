@@ -1,17 +1,17 @@
-# VERBA
+# DigQDA
 
-**Verifiable Evidence-bound Repertoire for Bounded Analysis**
+**Digital QDA — AI-assisted, evidence-bound qualitative data analysis with local models**
 
-VERBA is an independent, versioned method-contract toolkit for evidence-bound
+DigQDA is an independent, versioned method-contract toolkit for evidence-bound
 qualitative analysis with local language models. It is upstream research
 software: governed applications may consume its contracts, prompts, schemas and
-reference validators, but VERBA has no dependency on any consuming system.
+reference validators, but DigQDA has no dependency on any consuming system.
 
-> Status: pre-release (`0.2-draft`). VERBA is not itself a research
+> Status: pre-release (`0.4-draft`). DigQDA is not itself a research
 > infrastructure and does not claim to implement a complete named qualitative
 > methodology.
 
-## What VERBA provides
+## What DigQDA provides
 
 - versioned method contracts and allowed-method-claim boundaries;
 - source-near coding prompts with machine-readable JSON schemas;
@@ -21,21 +21,21 @@ reference validators, but VERBA has no dependency on any consuming system.
 
 ## Boundary
 
-VERBA publishes software and contains no research data. When executed on a
+DigQDA publishes software and contains no research data. When executed on a
 transcript, however, it **does process that input and its derived quotations**.
 The consuming application therefore remains responsible for authorization,
 data access, storage, logging, retention and release. Outputs must be treated as
 potentially sensitive.
 
 The normative edge is defined in
-[`contracts/VERBA-INTEGRATION-CONTRACT_v0.1.md`](contracts/VERBA-INTEGRATION-CONTRACT_v0.1.md).
+[`contracts/DigQDA-INTEGRATION-CONTRACT_v0.1.md`](contracts/DigQDA-INTEGRATION-CONTRACT_v0.1.md).
 
 ```text
 governed consumer
   authorizes and selects one bounded source unit
             |
             v
-VERBA method contract + reference implementation
+DigQDA method contract + reference implementation
   returns a proposal and validation manifest
             |
             v
@@ -61,6 +61,14 @@ python3 90_UTILITIES/tests/run_tests.py
 The Ollama dependency is required only for real model calls. Dry runs and most
 contract checks do not require a running model service.
 
+### Invalid-response quarantine
+
+Raw invalid model responses are never persisted by default. For an explicitly
+governed debugging run, pass `--quarantine-dir quarantine`; files are written
+under hash-derived names and that repository-local directory is ignored by Git.
+The contents can still contain sensitive source material and require the same
+access, retention and deletion controls as other research data.
+
 ## Repository map
 
 - `contracts/` — normative consumer boundary;
@@ -73,14 +81,15 @@ contract checks do not require a running model service.
 
 ## Independence
 
-VERBA must not import consumer code, name consumer-specific entities in its
+DigQDA must not import consumer code, name consumer-specific entities in its
 contracts, or decide whether a data subject, project or source is authorized.
 Consumers integrate through adapters and pin the exact contract, schema and
-VERBA versions they have validated.
+DigQDA versions they have validated.
 
 ## Publication status
 
-This repository is not yet ready for a public release. A public `v0.1.0` is
-blocked until maintainers confirm the final project name, choose a license,
-confirm authorship/ORCID metadata, add `CITATION.cff`, and archive a versioned
-release. See [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
+This repository is not yet ready for a public release. A public `v0.4.0` is
+blocked until maintainers confirm the final project/repository name,
+authorship/ORCID and repository metadata, validate the release in clean
+environments, and archive the versioned release. See
+[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md).
