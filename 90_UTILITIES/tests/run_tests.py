@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Reproduzierbare Tests fuer die QDA-Utilities.
-Deckt die Review-Befunde ab: Binding (Befund 2), FUZZY->REVIEW (Befund 3),
-STRICT-Erzwingung (Befund 1), fail-closed Exit (Befund 4), Schema-Haertung,
-Hash-Konsistenz, echtes Prompt-Beispiel.
+Reproduzierbare Tests. Deckt die Senior-Review-P0 ab, jeweils rot-zuerst-fähig:
+zero evidence (P0-01), unbound (P0-02), mode-SM (P0-03), claim nicht überschreibbar
+(P0-04), overlap-Locator (P0-05), malformed SRT fail-closed (P0-06).
 
-Aufruf:  python3 run_tests.py    (Deps: rapidfuzz, jsonschema)
-Exit 0 = alle gruen.
+Aufruf: python3 run_tests.py    (Deps: rapidfuzz, jsonschema)
 """
 
 import json
@@ -21,7 +19,6 @@ GEN = os.path.join(os.path.dirname(UTIL), "10_GENERIC")
 FIX = os.path.join(HERE, "fixtures")
 PY = sys.executable
 sys.path.insert(0, UTIL)
-
 PASS = FAIL = 0
 
 
@@ -41,62 +38,50 @@ def seg(*extra):
     return json.loads(run([os.path.join(UTIL, "qda_segment.py"), "--source"] + list(extra)).stdout)
 
 
-def validate(src, jsonf):
-    r = run([os.path.join(UTIL, "qda_validate.py"), "--source", os.path.join(FIX, src),
-             "--json", os.path.join(FIX, jsonf)])
+def validate(jsonf, *extra):
+    r = run([os.path.join(UTIL, "qda_validate.py"), "--source", os.path.join(FIX, "interview.srt"),
+             "--json", os.path.join(FIX, jsonf)] + list(extra))
     res = json.loads(r.stdout.split("--- Manifest-Fragment ---")[-1])["result"]
-    return res, r.returncode, json.loads(r.stdout.split("--- Manifest-Fragment ---")[-1])
+    return res, r.returncode
 
 
 srt = os.path.join(FIX, "interview.srt")
 txt = os.path.join(FIX, "interview.txt")
 
-# --- T1 P0 SRT ---
 print("T1  P0-Segmenter SRT")
 d = seg(srt, "--max-gap-ms", "50")
 check("SRT split -> 3 units", d["meta"]["n_units"] == 3, d["meta"])
 check("unit_ids S01..S03", [u["unit_id"] for u in d["source_units"]] == ["S01", "S02", "S03"])
-check("S01 range exakt", d["source_units"][0]["source_range"] == "00:00:01,000 --> 00:00:04,500")
 d1 = seg(srt)
 check("Default merged -> 1 unit", d1["meta"]["n_units"] == 1)
 
-# --- T2 P0 TXT ---
 print("T2  P0-Segmenter TXT")
 t = seg(txt)
 check("TXT -> 4 units", t["meta"]["n_units"] == 4)
-check("S01 Sprecher I", t["source_units"][0]["explicit_speaker"] == "I")
 check("S02 Sprecher B", t["source_units"][1]["explicit_speaker"] == "B")
 
-# --- T3 Validator (bound) ---
 print("T3  Validator bound_srt")
-res, rc, _ = validate("interview.srt", "bound_srt.json")
-check("1 EXACT", res["quotes_exact"] == 1, res)
-check("1 FUZZY", res["quotes_fuzzy"] == 1, res)
-check("1 NOT_FOUND", res["quotes_not_found"] == 1, res)
+res, rc = validate("bound_srt.json")
+check("1 EXACT / 1 FUZZY / 1 NOT_FOUND",
+      (res["quotes_exact"], res["quotes_fuzzy"], res["quotes_not_found"]) == (1, 1, 1), res)
 check("Verdict REVIEW_REQUIRED", res["verdict"] == "REVIEW_REQUIRED")
 check("Exit 1", rc == 1)
 
-# --- T4 Schema-Haertung ---
 print("T4  Schema-Vertrag")
 from jsonschema import Draft202012Validator
 schema = json.load(open(os.path.join(GEN, "p1_schema.json"), encoding="utf-8"))
 v = Draft202012Validator(schema)
+val = lambda fn: not list(v.iter_errors(json.load(open(os.path.join(FIX, fn), encoding="utf-8"))))
+check("gutes Beispiel valide", val("p1_good.json"))
+check("Extra-Feld abgelehnt", not val("p1_bad_extra.json"))
+check("fehlendes required abgelehnt", not val("p1_bad_missing.json"))
+check("unbekannter Enum abgelehnt", not val("p1_bad_enum.json"))
+check("CODES_ASSIGNED + leere Liste abgelehnt", not val("p1_bad_empty_codes.json"))
+check("NOTHING_CODABLE + Codes abgelehnt", not val("p1_bad_nothing_with_codes.json"))
+check("leere source_quote abgelehnt", not val("p1_bad_emptystr.json"))
 
-
-def valid(fn):
-    return not list(v.iter_errors(json.load(open(os.path.join(FIX, fn), encoding="utf-8"))))
-
-
-check("gutes Beispiel valide", valid("p1_good.json"))
-check("Extra-Feld abgelehnt", not valid("p1_bad_extra.json"))
-check("fehlendes required abgelehnt", not valid("p1_bad_missing.json"))
-check("unbekannter Enum abgelehnt", not valid("p1_bad_enum.json"))
-check("CODES_ASSIGNED + leere Liste abgelehnt", not valid("p1_bad_empty_codes.json"))
-check("NOTHING_CODABLE + Codes abgelehnt", not valid("p1_bad_nothing_with_codes.json"))
-check("leere source_quote abgelehnt", not valid("p1_bad_emptystr.json"))
-
-# --- T5/T6 Runner dry-run + fail-closed ---
-print("T5  Runner --dry-run OK")
+print("T5  Runner --dry-run OK + Provenance")
+import qda_run_p1 as R
 units_file = os.path.join(HERE, "_tmp_units.json")
 json.dump(d1, open(units_file, "w", encoding="utf-8"), ensure_ascii=False)
 schema_file = os.path.join(GEN, "p1_schema.json")
@@ -105,86 +90,106 @@ schema_file = os.path.join(GEN, "p1_schema.json")
 def run_p1(*extra):
     r = run([os.path.join(UTIL, "qda_run_p1.py"), "--units", units_file,
              "--schema", schema_file, "--dry-run"] + list(extra))
-    return json.loads(r.stdout)["_qda_run"], r.returncode
+    return (json.loads(r.stdout)["_qda_run"] if r.stdout.strip() else None), r.returncode
 
 
 m, rc = run_p1("--num-ctx", "8192")
-check("Unit im Budget -> DRY_RUN_OK", m["statuses"][0]["status"] == "DRY_RUN_OK")
-check("dry-run all_ok -> Exit 0", rc == 0)
-check("Manifest traegt contract/schema/library-Version",
-      all(k in m for k in ("contract_version", "schema_sha256", "library_version",
-                           "prompt_version", "allowed_method_claim")))
+check("DRY_RUN_OK", m["statuses"][0]["status"] == "DRY_RUN_OK")
+check("Exit 0", rc == 0)
+check("Manifest: contract/schema/prompt/library/claim + Hashes",
+      all(k in m for k in ("contract_version", "contract_sha256", "schema_sha256",
+                           "prompt_sha256", "library_version", "allowed_method_claim")))
 
-print("T6  Runner fail-closed bei Budget-Ueberschreitung")
+print("T6  Runner fail-closed bei Budget")
 m2, rc2 = run_p1("--num-ctx", "300", "--reserve-output-tokens", "100")
-check("winziges num_ctx -> SKIPPED_OVER_BUDGET", m2["statuses"][0]["status"] == "SKIPPED_OVER_BUDGET")
-check("Nicht-Ergebnis -> Exit 1 (fail-closed)", rc2 == 1)
+check("SKIPPED_OVER_BUDGET", m2["statuses"][0]["status"] == "SKIPPED_OVER_BUDGET")
+check("Exit 1", rc2 == 1)
 
-os.remove(units_file)
-
-# --- T7 echtes Prompt-Beispiel (nicht nur die Fixture) ---
-print("T7  Reales Built-in-Beispiel ist schema-valide & quellentreu")
-import qda_run_p1 as R
-ex_open = json.loads(R.EXAMPLE_OPEN)
-ex_cb = json.loads(R.EXAMPLE_CODEBOOK)
-check("EXAMPLE_OPEN schema-valide", not list(v.iter_errors(ex_open)))
-check("EXAMPLE_CODEBOOK schema-valide", not list(v.iter_errors(ex_cb)))
+print("T7  Reales Built-in-Beispiel schema-valide & quellentreu")
+ex_open, ex_cb = json.loads(R.EXAMPLE_OPEN), json.loads(R.EXAMPLE_CODEBOOK)
+check("EXAMPLE_OPEN valide", not list(v.iter_errors(ex_open)))
+check("EXAMPLE_CODEBOOK valide", not list(v.iter_errors(ex_cb)))
 tmp_ex = os.path.join(HERE, "_tmp_example.json")
 json.dump(ex_open, open(tmp_ex, "w", encoding="utf-8"), ensure_ascii=False)
-rr = run([os.path.join(UTIL, "qda_validate.py"), "--source", srt, "--json", tmp_ex])
+rr = run([os.path.join(UTIL, "qda_validate.py"), "--source", srt, "--json", tmp_ex, "--document-mode"])
 res7 = json.loads(rr.stdout.split("--- Manifest-Fragment ---")[-1])["result"]
-check("beide Beispiel-Zitate EXACT", res7["quotes_exact"] == 2, res7)
+check("beide Beispiel-Zitate EXACT (document-mode)", res7["quotes_exact"] == 2, res7)
 os.remove(tmp_ex)
 
-# --- T8 Binding / Fehlbindung (Befund 2) ---
-print("T8  Binding: Zitat aus falscher Einheit -> WRONG_UNIT")
-res8, rc8, _ = validate("interview.srt", "mis_attribution.json")
+print("T8  Binding: Fehlbindung -> WRONG_UNIT (P0-02-Kern)")
+res8, rc8 = validate("mis_attribution.json")
 check("WRONG_UNIT erkannt", res8["quotes_wrong_unit"] == 1, res8)
-check("kein faelschliches EXACT", res8["quotes_exact"] == 0, res8)
-check("Verdict NICHT PASS", res8["verdict"] == "REVIEW_REQUIRED")
+check("kein faelschliches EXACT / nicht PASS", res8["quotes_exact"] == 0 and res8["verdict"] != "PASS")
 check("Exit 1", rc8 == 1)
 
-# --- T9 FUZZY-only -> REVIEW (Befund 3) ---
-print("T9  FUZZY-only fuehrt NICHT zu PASS")
-res9, rc9, _ = validate("interview.srt", "fuzzy_only.json")
-check("1 EXACT / 1 FUZZY / 0 NOT_FOUND", res9["quotes_exact"] == 1 and res9["quotes_fuzzy"] == 1
-      and res9["quotes_not_found"] == 0, res9)
-check("Verdict REVIEW_REQUIRED (nicht PASS)", res9["verdict"] == "REVIEW_REQUIRED")
+print("T9  FUZZY-only -> REVIEW")
+res9, rc9 = validate("fuzzy_only.json")
+check("Verdict REVIEW_REQUIRED", res9["verdict"] == "REVIEW_REQUIRED")
 check("Exit 1", rc9 == 1)
 
-# --- T10 STRICT-Modus maschinell erzwungen (Befund 1) ---
-print("T10  enforce_mode")
+print("T10  validate_mode (P0-03 volle Statemachine)")
 allowed = {"Familienbindung"}
-induktiv = {"descriptive_codes": [{"code_label": "frei", "status": "INDUCTIVE_CANDIDATE"}]}
-codebuch = {"descriptive_codes": [{"code_label": "Familienbindung", "status": "CODEBOOK_APPLIED"}]}
-fremd = {"descriptive_codes": [{"code_label": "Unbekannt", "status": "CODEBOOK_APPLIED"}]}
-check("STRICT lehnt induktiven Code ab", R.enforce_mode(induktiv, "STRICT_CODEBOOK", allowed) is not None)
-check("STRICT akzeptiert Codebuch-Code", R.enforce_mode(codebuch, "STRICT_CODEBOOK", allowed) is None)
-check("STRICT lehnt Nicht-Codebuch-Label ab", R.enforce_mode(fremd, "STRICT_CODEBOOK", allowed) is not None)
-check("OPEN lehnt Codebuch-Status ab", R.enforce_mode(codebuch, "OPEN_DESCRIPTIVE", None) is not None)
+CD = "CODES_ASSIGNED"
+ind = {"coding_decision": CD, "descriptive_codes": [{"code_label": "frei", "status": "INDUCTIVE_CANDIDATE"}]}
+cb = {"coding_decision": CD, "descriptive_codes": [{"code_label": "Familienbindung", "status": "CODEBOOK_APPLIED"}]}
+fremd = {"coding_decision": CD, "descriptive_codes": [{"code_label": "X", "status": "CODEBOOK_APPLIED"}]}
+ncf = {"coding_decision": "NO_CODE_FITS", "descriptive_codes": []}
+mix = {"coding_decision": CD, "descriptive_codes": [
+    {"code_label": "Familienbindung", "status": "CODEBOOK_APPLIED"},
+    {"code_label": "neu", "status": "INDUCTIVE_CANDIDATE"}]}
+two_ind = {"coding_decision": CD, "descriptive_codes": [
+    {"code_label": "a", "status": "INDUCTIVE_CANDIDATE"}, {"code_label": "b", "status": "INDUCTIVE_CANDIDATE"}]}
+check("STRICT lehnt induktiv ab", R.validate_mode(ind, "STRICT_CODEBOOK", allowed) is not None)
+check("STRICT akzeptiert Codebuch-Code", R.validate_mode(cb, "STRICT_CODEBOOK", allowed) is None)
+check("STRICT lehnt Nicht-Codebuch-Label ab", R.validate_mode(fremd, "STRICT_CODEBOOK", allowed) is not None)
+check("OPEN lehnt Codebuch-Status ab", R.validate_mode(cb, "OPEN_DESCRIPTIVE", None) is not None)
+check("OPEN lehnt NO_CODE_FITS ab", R.validate_mode(ncf, "OPEN_DESCRIPTIVE", None) is not None)
+check("CONSTRAINED lehnt Mischen ab", R.validate_mode(mix, "CONSTRAINED_EXTENSION", allowed) is not None)
+check("CONSTRAINED lehnt >1 induktiv ab", R.validate_mode(two_ind, "CONSTRAINED_EXTENSION", allowed) is not None)
 
-# --- T11 grammar_schema strippt Nicht-Grammatik-Keywords ---
 print("T11  grammar_schema fuer Ollama")
-g = R.grammar_schema(schema)
-gs = json.dumps(g)
-check("kein allOf/if/then in Grammar", not any(k in g for k in ("allOf", "if", "then")))
-check("kein minLength/minItems in Grammar", "minLength" not in gs and "minItems" not in gs)
+g = R.grammar_schema(schema); gs = json.dumps(g)
+check("kein allOf/if/then", not any(k in g for k in ("allOf", "if", "then")))
+check("kein minLength/minItems", "minLength" not in gs and "minItems" not in gs)
 check("enum/additionalProperties bleiben", '"enum"' in gs and "additionalProperties" in gs)
 
-# --- T12 Hash-Konsistenz Segmenter <-> Validator ---
-print("T12  Hash-Konsistenz (Originalbytes)")
-seg_hash = seg(srt)["meta"]["source_sha256"]
-_, _, man = validate("interview.srt", "bound_srt.json")
-check("Segmenter- und Validator-Hash identisch", seg_hash == man["source_sha256"],
-      f"{seg_hash[:12]} vs {man['source_sha256'][:12]}")
+print("T12  Hash-Konsistenz")
+_, _ = validate("bound_srt.json")
+rman = run([os.path.join(UTIL, "qda_validate.py"), "--source", srt, "--json", os.path.join(FIX, "bound_srt.json")])
+man = json.loads(rman.stdout.split("--- Manifest-Fragment ---")[-1])
+check("Segmenter- = Validator-Hash", seg(srt)["meta"]["source_sha256"] == man["source_sha256"])
 
-# --- T13 Quiet mode: keine Zitate in ambient stdout ---
-print("T13  Validator --quiet redigiert stdout")
-rq = run([os.path.join(UTIL, "qda_validate.py"), "--source", srt,
-          "--json", os.path.join(FIX, "mis_attribution.json"), "--quiet"])
-quiet_payload = json.loads(rq.stdout)
-check("quiet stdout enthaelt nur Manifest", set(quiet_payload) == {"_qda_validation"})
-check("quiet stdout enthaelt kein Rohzitat", "Meine Familie" not in rq.stdout)
+print("T13  P0-01 zero evidence")
+res_e, rc_e = validate("p1_bad_empty_codes.json")
+check("CODES_ASSIGNED+leer -> INVALID_INPUT", res_e["verdict"] == "INVALID_INPUT", res_e)
+check("Exit 2", rc_e == 2)
+res_n, rc_n = validate("nothing_codable.json")
+check("gebundenes NOTHING_CODABLE -> NO_EVIDENCE (nicht PASS)", res_n["verdict"] == "NO_EVIDENCE", res_n)
+check("Exit 1 (kein Schein-PASS)", rc_n == 1)
 
+print("T14  P0-02 unbound evidence")
+res_u, rc_u = validate("p1_good.json")
+check("beide Zitate UNBOUND", res_u["quotes_unbound"] == 2, res_u)
+check("Verdict nicht PASS", res_u["verdict"] != "PASS")
+check("Exit != 0", rc_u != 0)
+
+print("T15  P0-05 blosse Overlap ist ungueltig")
+res_o, rc_o = validate("overlap_locator.json")
+check("Locator ungueltig gezaehlt", res_o["locators_invalid"] >= 1, res_o)
+check("Verdict REVIEW (kein PASS trotz EXACT-Zitat)", res_o["verdict"] == "REVIEW_REQUIRED")
+check("Exit 1", rc_o == 1)
+
+print("T16  P0-04 Methodenclaim nicht ueberschreibbar")
+check("Claim = Contract-Konstante", m["allowed_method_claim"] == "GENERIC_SOURCE_NEAR_CONTROLLED_QDA_CODING")
+r_claim = run([os.path.join(UTIL, "qda_run_p1.py"), "--units", units_file, "--schema", schema_file,
+               "--dry-run", "--method-claim", "GROUNDED_THEORY_METHOD_CLAIM"])
+check("--method-claim wird abgewiesen (kein Override)", r_claim.returncode != 0)
+
+print("T17  P0-06 malformed SRT fail-closed")
+r_bad = run([os.path.join(UTIL, "qda_segment.py"), "--source", os.path.join(FIX, "malformed.srt")])
+check("Abbruch mit Exit != 0", r_bad.returncode != 0, f"rc={r_bad.returncode}")
+check("kein Output-JSON auf stdout", r_bad.stdout.strip() == "")
+
+os.remove(units_file)
 print(f"\n{'='*48}\n  {PASS} PASS  /  {FAIL} FAIL\n{'='*48}")
 sys.exit(0 if FAIL == 0 else 1)

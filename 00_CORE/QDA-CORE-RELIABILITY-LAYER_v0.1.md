@@ -4,7 +4,7 @@
 DOC_ID: QDA-CORE-RELIABILITY-LAYER
 VERSION: 0.1
 STATUS: DRAFT
-SCOPE: technische Zuverlässigkeitsschicht, methodenunabhängig
+SCOPE: infrastruktur, methodenunabhängig
 GILT_FÜR: alle analytischen Schubladen (10_GENERIC … 60_CROSS_CASE)
 ZIELMODELLE: gemma3n:e4b, mistral:7b, qwen3:8b (lokal via Ollama)
 LEITSATZ: Das Modell schlägt vor. Der Code verifiziert. Ein atomarer Task pro Call.

@@ -3,7 +3,7 @@
 """
 QDA P0 — SEGMENTIERUNG (v0.1, DRAFT)
 
-Deterministische Vor-Segmentierung fuer die VERBA reference utilities.
+Deterministische Vor-Segmentierung fuer die QDA Prompt Library.
 KEIN Modell. P0 trifft KEINE analytischen Entscheidungen — es zerlegt die
 Quelle nur an *beobachtbaren* Grenzen (Cue-Pausen bzw. Leerzeilen) in
 handhabbare Kodierfenster mit exakt uebernommenen Locatoren. Die eigentliche
@@ -27,9 +27,24 @@ kann. Die Locatoren sind spaeter mit qda_validate.py pruefbar.
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
+import tempfile
 import unicodedata
+
+
+def atomic_write(path, text):
+    d = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
 
 TIMECODE_RE = re.compile(r"(\d{2}):(\d{2}):(\d{2})[,\.](\d{3})")
 # Sprecherlabel am Zeilenanfang, z.B. "B:", "I:", "IP2:", "Interviewer:".
@@ -71,23 +86,46 @@ def ms_to_tc(ms):
 
 
 def parse_srt(raw):
-    cues = []
-    for block in re.split(r"\n\s*\n", raw.strip()):
+    """Strikte SRT-Analyse (P0-06).
+
+    Rueckgabe: (cues, problems, srt_intended).
+    - srt_intended = mindestens ein Block enthaelt "-->".
+    - Ist SRT beabsichtigt, muss JEDER nicht-leere Block genau eine gueltige
+      Timecode-Zeile ergeben; start<=ende; eindeutige Indizes; monoton steigende
+      Startzeiten. Jede Abweichung -> problems (kein stilles Verwerfen).
+    """
+    cues, problems = [], []
+    blocks = [b for b in re.split(r"\n\s*\n", raw.strip()) if b.strip() != ""]
+    srt_intended = any("-->" in b for b in blocks)
+    if not srt_intended:
+        return [], [], False
+
+    seen_idx = set()
+    last_start = -1
+    for bnum, block in enumerate(blocks, 1):
         lines = [l for l in block.splitlines() if l.strip() != ""]
-        if not lines:
+        tc_lines = [l for l in lines if "-->" in l and len(TIMECODE_RE.findall(l)) >= 2]
+        if len(tc_lines) != 1:
+            problems.append(f"Block {bnum}: {'keine' if not tc_lines else 'mehrere'} gueltige Timecode-Zeile(n)")
             continue
-        for i, line in enumerate(lines):
-            tcs = TIMECODE_RE.findall(line)
-            if len(tcs) >= 2 and "-->" in line:
-                idx = int(lines[0].strip()) if lines[0].strip().isdigit() else len(cues) + 1
-                cues.append({
-                    "index": idx,
-                    "start_ms": tc_to_ms(*tcs[0]),
-                    "end_ms": tc_to_ms(*tcs[1]),
-                    "text": " ".join(lines[i + 1:]).strip(),
-                })
-                break
-    return cues
+        tcs = TIMECODE_RE.findall(tc_lines[0])
+        start, end = tc_to_ms(*tcs[0]), tc_to_ms(*tcs[1])
+        if start > end:
+            problems.append(f"Block {bnum}: Start > Ende")
+            continue
+        idx = int(lines[0].strip()) if lines[0].strip().isdigit() else len(cues) + 1
+        if idx in seen_idx:
+            problems.append(f"Block {bnum}: doppelter Index {idx}")
+            continue
+        if start < last_start:
+            problems.append(f"Block {bnum}: nicht monotone Startzeit")
+            continue
+        seen_idx.add(idx)
+        last_start = start
+        ti = lines.index(tc_lines[0])
+        cues.append({"index": idx, "start_ms": start, "end_ms": end,
+                     "text": " ".join(lines[ti + 1:]).strip()})
+    return cues, problems, True
 
 
 def segment_srt(cues, mode, max_gap_ms, max_chars):
@@ -193,8 +231,14 @@ def main():
     sha = hashlib.sha256(raw_bytes).hexdigest()
     raw = unicodedata.normalize("NFC", raw_bytes.decode("utf-8"))
 
-    cues = parse_srt(raw)
-    if cues:
+    cues, problems, srt_intended = parse_srt(raw)
+    if srt_intended:
+        # Fail-closed (P0-06): keine still verworfenen Bloecke, kein Output.
+        if problems:
+            sys.stderr.write("ABBRUCH: SRT strukturell ungueltig — kein Output geschrieben.\n")
+            for p in problems:
+                sys.stderr.write(f"  - {p}\n")
+            sys.exit(3)
         source_type = "srt"
         segments = segment_srt(cues, args.mode, args.max_gap_ms, args.max_chars)
     else:
@@ -209,6 +253,7 @@ def main():
             "mode": args.mode if source_type == "srt" else "paragraph",
             "params": {"max_gap_ms": args.max_gap_ms, "max_chars": args.max_chars},
             "n_units": len(segments),
+            "srt_blocks_parsed": len(cues) if source_type == "srt" else None,
             "note": "source_units sind mechanische Verarbeitungseinheiten, keine "
                     "analytischen Segmente. Analytische Segmentierung bleibt P1/Mensch.",
         },
@@ -216,8 +261,7 @@ def main():
     }
     text = json.dumps(out, ensure_ascii=False, indent=2)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as f:
-            f.write(text)
+        atomic_write(args.out, text)
         sys.stderr.write(f"{len(segments)} source_units ({source_type}) -> {args.out}\n")
     else:
         print(text)

@@ -25,8 +25,8 @@ TECHNICAL_VALIDATION: NONE
 
 # Standalone prompt for evidence-bound QDA with Gemma
 
-This prompt is independent of consumer pipelines, shell scripts, file paths,
-cataloguing, and access-control workflows. Replace the bracketed settings, then paste the source
+This prompt is independent of DINOH, shell scripts, file paths, cataloguing, and
+access-control workflows. Replace the bracketed settings, then paste the source
 material between the two source markers.
 
 For long interviews, analyse bounded excerpts separately and label each excerpt
