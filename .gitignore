@@ -10,3 +10,14 @@ venv/
 90_UTILITIES/tests/_tmp_*.json
 # Opt-in Rohantwort-Quarantaene; kann sensible Forschungsdaten enthalten.
 quarantine/
+
+# --- Commit-Politik: nur Quelltext, Doku, synthetische Fixtures und Tests. ---
+# NIE committen: echte Forschungsdaten, Laufausgaben, Caches, Umgebungen.
+# Laufausgaben (eval/out, smoke/out, ... ) zentral abgesichert:
+**/out/
+# Pilot-Laeufe liegen ohnehin ausserhalb des Repos (~/DigQDA-Pilot):
+DigQDA-Pilot/
+# Git-Lock-Aufraeumreste (Bridge-Commits) und lokale Secrets:
+*.stale.*
+.env
+.env.*
