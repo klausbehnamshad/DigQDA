@@ -6,7 +6,7 @@ VERSION: 0.1
 STATUS: DRAFT
 SCOPE: infrastruktur, methodenunabhängig
 GILT_FÜR: alle analytischen Schubladen (10_GENERIC … 60_CROSS_CASE)
-ZIELMODELLE: gemma3:4b, mistral:7b, qwen3:8b (lokal via Ollama)
+ZIELMODELLE: gemma4:e4b, mistral:7b, qwen3:8b (lokal via Ollama)
 LEITSATZ: Das Modell schlägt vor. Der Code verifiziert. Ein atomarer Task pro Call.
 ```
 
@@ -139,7 +139,7 @@ einer Methodenteil-Fußnote zitierfähig — passend zu deinem Anspruch.
 run_manifest:
   run_id
   prompt_id / version / prompt_sha256 / schema_sha256 / grammar_sha256 / contract_sha256
-  model_name + digest + quantisierung   (z.B. gemma3:4b, Q4_K_M)
+  model_name + digest + quantisierung   (z.B. gemma4:e4b)
   runtime: temperature, top_p, num_ctx, seed
   source_sha256                         (Hash der Originalquelle)
   unit_input_sha256                     (kanonisches vollständiges Unit-Objekt)

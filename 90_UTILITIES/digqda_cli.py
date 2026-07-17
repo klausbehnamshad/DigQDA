@@ -16,6 +16,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from digqda_errors import WorkflowError
+from qda_scope import apply_role_scope
+
 ROOT = Path(__file__).resolve().parent.parent
 UTIL = ROOT / "90_UTILITIES"
 SCHEMA = ROOT / "10_GENERIC" / "p1_schema.json"
@@ -39,10 +42,6 @@ if importlib.util.find_spec("jsonschema") is not None:
     import qda_run_p1 as runner
 if importlib.util.find_spec("rapidfuzz") is not None:
     import qda_validate as validator
-
-
-class WorkflowError(RuntimeError):
-    """A user-actionable, fail-closed pipeline error."""
 
 
 def _require_runtime() -> None:
@@ -198,6 +197,10 @@ def evaluate_gate(
     require(_sha_ok(source_sha), "P0-Quellenhash fehlt")
     require(manifest.get("source_sha256") == source_sha, "Runner ist an eine andere Quelle gebunden")
     require(vman.get("source_sha256") == source_sha, "Validator ist an eine andere Quelle gebunden")
+    if meta.get("scope_applied"):
+        require(_sha_ok(meta.get("scope_sha256")), "P0-Scope-Hash fehlt")
+        require(manifest.get("scope_sha256") == meta.get("scope_sha256"),
+                "Runner ist nicht an den P0-Rollen-Scope gebunden")
     require(manifest.get("library_version") == runner.LIBRARY_VERSION, "Library-Version ist unerwartet")
     require(manifest.get("contract_version") == runner.CONTRACT_VERSION, "Contract-Version ist unerwartet")
     require(manifest.get("prompt_id") == runner.PROMPT_ID, "Prompt-ID ist unerwartet")
@@ -311,12 +314,35 @@ def _validate_inputs(args: argparse.Namespace) -> tuple[Path, Path, Path | None]
     return source, out_root, codebook
 
 
+def _load_role_scope(args: argparse.Namespace) -> tuple[dict[str, str] | None, list[str]]:
+    if bool(args.role_map) != bool(args.include_role):
+        raise WorkflowError("--role-map und mindestens ein --include-role gehoeren zusammen")
+    if not args.role_map:
+        return None, []
+    path = _resolved(Path(args.role_map))
+    if not path.is_file() or _is_cloud_path(path):
+        raise WorkflowError("Rollenmap muss eine lokale JSON-Datei ausserhalb von Cloud-Sync sein")
+    data = _load_json(path, "Rollenmap")
+    if not data or not all(
+        isinstance(key, str) and key.strip()
+        and isinstance(value, str) and value.strip()
+        for key, value in data.items()
+    ):
+        raise WorkflowError("Rollenmap muss nicht-leere Sprecherlabels auf nicht-leere Rollen abbilden")
+    included = list(dict.fromkeys(args.include_role))
+    unknown_roles = sorted(set(included) - set(data.values()))
+    if unknown_roles:
+        raise WorkflowError("--include-role fehlt in der Rollenmap: " + ", ".join(unknown_roles))
+    return data, included
+
+
 def pilot(args: argparse.Namespace) -> int:
     _require_runtime()
     problems = _readiness_problems(args.model, include_model=not args.dry_run)
     if problems:
         raise WorkflowError("Pilot nicht bereit: " + "; ".join(problems))
     source, out_root, codebook = _validate_inputs(args)
+    role_map, included_roles = _load_role_scope(args)
     old_umask = os.umask(0o077)
     try:
         _secure_dir(out_root)
@@ -327,6 +353,7 @@ def pilot(args: argparse.Namespace) -> int:
         run_dir.mkdir(mode=0o700, exist_ok=False)
         label = f"{args.opaque_id}{source.suffix.lower()}"
         segments_path = run_dir / "segments.json"
+        segments_full_path = run_dir / "segments_full.json"
         coding_path = run_dir / "coding.json"
         validation_path = run_dir / "validation.json"
         report_path = run_dir / "validation.md"
@@ -344,12 +371,32 @@ def pilot(args: argparse.Namespace) -> int:
             sys.executable, str(UTIL / "qda_segment.py"), "--source", str(source),
             "--source-label", label, "--out", str(segments_path),
         ]
+        if role_map and source.suffix.lower() == ".srt":
+            segment_cmd.extend(("--mode", "cue"))
         segment_exit = _run(segment_cmd, log_lines)
         if segment_exit or not segments_path.is_file():
             log_lines.extend(("technical_gate=BLOCKED", "gate_reason=P0-Segmentierung fehlgeschlagen"))
             log_path.write_text("\n".join(log_lines) + "\n", encoding="utf-8")
             _secure_artifacts(run_dir)
             raise WorkflowError("P0-Segmentierung ist fehlgeschlagen")
+
+        excluded_units: list[str] = []
+        if role_map:
+            full_segments = _load_json(segments_path, "P0-Envelope")
+            scoped_segments, excluded_units = apply_role_scope(
+                full_segments, role_map, included_roles
+            )
+            segments_full_path.write_bytes(segments_path.read_bytes())
+            runner.atomic_write(
+                str(segments_path),
+                json.dumps(scoped_segments, ensure_ascii=False, indent=2),
+            )
+            log_lines.extend((
+                "scope_applied=true",
+                f"scope_sha256={scoped_segments['meta']['scope_sha256']}",
+                f"scope_included_roles={','.join(included_roles)}",
+                f"scope_excluded_n_units={len(excluded_units)}",
+            ))
 
         runner_cmd = [
             sys.executable, str(UTIL / "qda_run_p1.py"), "--units", str(segments_path),
@@ -410,6 +457,8 @@ def pilot(args: argparse.Namespace) -> int:
             f"- Fall-ID: `{args.opaque_id}`\n"
             f"- Technisches Gate: **{'BEREIT' if passed else 'GESPERRT'}**\n"
             f"- Validierung: **{verdict}**\n"
+            f"- Rollen-Scope: **{'aktiv' if role_map else 'nicht gesetzt'}**"
+            f"{f' ({len(excluded_units)} Unit(s) ausgeschlossen)' if role_map else ''}\n"
             f"- Detailreport: [validation.md](validation.md)\n\n"
             "## Manuelle Quellenpruefung\n\n"
             "- [ ] Alle gebundenen Zitate wurden gegen die lokale Quelle geprueft.\n"
@@ -439,12 +488,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="digqda", description="Lokale, evidenzgebundene QDA-Pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
     doctor_parser = sub.add_parser("doctor", help="Lokale Pilotbereitschaft pruefen")
-    doctor_parser.add_argument("--model", default="gemma3:4b")
+    doctor_parser.add_argument("--model", default="gemma4:e4b")
     pilot_parser = sub.add_parser("pilot", help="Einen isolierten, ueberwachten Methodenlauf starten")
     pilot_parser.add_argument("opaque_id", help="Opake Fall-ID, z. B. CASE-001")
     pilot_parser.add_argument("source", help="Lokale .srt- oder .txt-Quelle")
     pilot_parser.add_argument("--out-root", default=str(DEFAULT_OUT_ROOT))
-    pilot_parser.add_argument("--model", default="gemma3:4b")
+    pilot_parser.add_argument("--model", default="gemma4:e4b")
     def mode_value(value: str) -> str:
         aliases = {
             "open": "OPEN_DESCRIPTIVE",
@@ -465,6 +514,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pilot_parser.add_argument("--codebook")
     pilot_parser.add_argument("--research-question", default="")
+    pilot_parser.add_argument(
+        "--role-map",
+        help="JSON-Objekt: explizites Sprecherlabel -> methodische Rolle",
+    )
+    pilot_parser.add_argument(
+        "--include-role", action="append",
+        help="Nur diese Rolle an P1 senden (wiederholbar; erfordert --role-map)",
+    )
     pilot_parser.add_argument("--dry-run", action="store_true", help="Pipeline ohne Modellantwort pruefen")
     pilot_parser.add_argument("--synthetic", action="store_true", help="Nur fuer gebuendelte Testfixture")
     pilot_parser.add_argument("--diagnostic-quarantine", action="store_true")

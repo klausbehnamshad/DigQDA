@@ -35,9 +35,25 @@ beweist den Datenfluss, nicht die Modellqualität.
 ./digqda pilot CASE-001 /sicherer/pfad/interview.srt
 ```
 
-Defaults: `OPEN_DESCRIPTIVE`, `gemma3:4b`, Laufwurzel `~/DigQDA-Pilot`.
+Defaults: `OPEN_DESCRIPTIVE`, `gemma4:e4b`, Laufwurzel `~/DigQDA-Pilot`.
 Für den ersten Pilot ist OPEN ohne Codebuch empfohlen; die Codes bleiben
 Vorschläge bis zur methodischen Prüfung.
+
+Bei Interviews wird der analysierte Sprecher-Scope explizit über eine lokale
+fallbezogene Rollenmap gesetzt, zum Beispiel `roles.json`:
+
+```json
+{"I": "interviewer", "B": "interviewee"}
+```
+
+```bash
+./digqda pilot CASE-001 /sicherer/pfad/interview.srt \
+  --role-map /sicherer/pfad/roles.json --include-role interviewee
+```
+
+Mit aktivem Scope segmentiert SRT cue-weise, weist jedes Sprecherlabel über die
+Map zu und bricht bei fehlenden/gemischten Labels ab. `segments_full.json` hält
+den geschützten P0-Kontext; nur die gefilterten `segments.json` gehen an P1.
 
 Die methodisch relevanten Varianten sind direkt am selben Einstieg verfügbar:
 
@@ -55,6 +71,7 @@ Wichtige Optionen:
 | `--codebook` | erforderlich für STRICT/CONSTRAINED; in OPEN nicht zulässig |
 | `--research-question` | Forschungsfrage; im Manifest nur als Hash gebunden |
 | `--model` | exakter lokaler Ollama-Tag |
+| `--role-map` / `--include-role` | fallbezogener Sprecher-Scope vor P1 |
 | `--out-root` | geschützte Laufwurzel außerhalb des Git-Repos |
 | `--diagnostic-quarantine` | ungültige Rohantworten nur für gezielte Diagnose sichern |
 
@@ -65,6 +82,7 @@ Jeder Aufruf erhält einen neuen, nicht überschreibbaren Laufordner:
 ```text
 ~/DigQDA-Pilot/CASE-001/20260716T…Z/
   segments.json
+  segments_full.json        # nur bei aktivem Rollen-Scope
   coding.json
   validation.json
   validation.md

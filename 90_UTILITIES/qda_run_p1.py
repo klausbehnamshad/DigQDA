@@ -23,6 +23,7 @@ Deps: pip install ollama jsonschema   ·   --dry-run baut/prueft ohne Ollama.
 """
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -44,7 +45,7 @@ except ImportError:
 LIBRARY_VERSION = "0.4"
 CONTRACT_VERSION = "0.1"
 PROMPT_ID = "QDA-GEN-DESCRIPTIVE-CODING"
-PROMPT_VERSION = "1.1"
+PROMPT_VERSION = "1.2"
 ALLOWED_METHOD_CLAIM = {"QDA-GEN-DESCRIPTIVE-CODING": "GENERIC_SOURCE_NEAR_CONTROLLED_QDA_CODING"}
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -183,15 +184,11 @@ def build_prompt(template, rq, mode, allowed_labels, defs, unit):
     if selected == "CODEBOOK_EXAMPLE":
         if not allowed_labels:
             raise ContractInputError(f"Modus {mode} braucht ein nicht-leeres Codebuch")
-        example_label = next(iter(allowed_labels))
-        example_definition = defs.get(example_label, "").strip()
-        if not example_definition:
-            example_definition = f"Codebuchcode {example_label}"
         example_source = (
-            f"Beispielaussage zum Code {example_label}: {example_definition}."
+            "Diese Aussage beschreibt einen anderen Sachverhalt, der keine der "
+            "gebundenen Codebuchdefinitionen erfuellt."
         )
     else:
-        example_label = example_definition = None
         example_source = (
             "Meine Vasen sind am Ende richtig schön geworden, das hat mich sehr gefreut."
         )
@@ -200,15 +197,7 @@ def build_prompt(template, rq, mode, allowed_labels, defs, unit):
         if match.group(1) != selected:
             return ""
         raw_example = match.group(2).strip()
-        if selected == "OPEN_EXAMPLE":
-            return raw_example
-        example = json.loads(raw_example)
-        code = example["descriptive_codes"][0]
-        example["concise_description"] = f"Beispielaussage zum Code {example_label}."
-        code["code_label"] = example_label
-        code["definition"] = example_definition
-        code["source_quote"] = example_source
-        return json.dumps(example, ensure_ascii=False, indent=2)
+        return raw_example
 
     prompt = PROMPT_BLOCK_RE.sub(render_example, template)
     prompt = (prompt
@@ -298,7 +287,27 @@ def grammar_schema_for_mode(schema, mode, allowed_labels=None):
         status_schema["enum"] = ["CODEBOOK_APPLIED", "CODEBOOK_AMBIGUOUS"]
     elif mode == "CONSTRAINED_EXTENSION":
         decision_schema["enum"] = ["CODES_ASSIGNED", "NOTHING_CODABLE"]
-    return grammar
+
+    def decision_branch(decision, *, codes_required):
+        branch = copy.deepcopy(grammar)
+        branch_props = branch["properties"]
+        branch_props["coding_decision"] = {"const": decision}
+        codes_schema = branch_props["descriptive_codes"]
+        if codes_required:
+            codes_schema["minItems"] = 1
+        else:
+            codes_schema["maxItems"] = 0
+        return branch
+
+    decisions = ["CODES_ASSIGNED", "NOTHING_CODABLE"]
+    if mode == "STRICT_CODEBOOK":
+        decisions.insert(1, "NO_CODE_FITS")
+    return {
+        "oneOf": [
+            decision_branch(decision, codes_required=decision == "CODES_ASSIGNED")
+            for decision in decisions
+        ]
+    }
 
 
 def bind_p0_fields(unit, model_obj):
@@ -409,7 +418,7 @@ def main():
     ap = argparse.ArgumentParser(description="QDA P1 Runner (fail-closed).")
     ap.add_argument("--units", required=True)
     ap.add_argument("--schema", required=True)
-    ap.add_argument("--model", default="gemma3:4b")
+    ap.add_argument("--model", default="gemma4:e4b")
     ap.add_argument("--mode", default="OPEN_DESCRIPTIVE",
                     choices=["OPEN_DESCRIPTIVE", "CONSTRAINED_EXTENSION", "STRICT_CODEBOOK"])
     ap.add_argument("--research-question", default="")
@@ -421,7 +430,10 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--max-codebook-chars", type=int, default=4000)
     ap.add_argument("--token-ratio", type=float, default=3.2)
-    ap.add_argument("--reserve-output-tokens", type=int, default=768)
+    ap.add_argument(
+        "--reserve-output-tokens", type=int, default=2048,
+        help="Kontextreserve und harte Ollama-num_predict-Grenze (Default 2048)",
+    )
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--quarantine-dir",
                     help="Opt-in: Zielordner fuer ungueltige Rohantworten (sonst nicht persistiert).")
@@ -538,7 +550,8 @@ def main():
             resp = chat(model=args.model, messages=[{"role": "user", "content": prompt}],
                         format=grammar,
                         options={"temperature": args.temperature, "top_p": args.top_p,
-                                 "num_ctx": args.num_ctx, "seed": args.seed})
+                                 "num_ctx": args.num_ctx, "seed": args.seed,
+                                 "num_predict": args.reserve_output_tokens})
             raw = resp["message"]["content"]
             obj = json.loads(raw)
             errs = sorted(validator.iter_errors(obj), key=lambda e: list(e.path))
@@ -581,8 +594,10 @@ def main():
         "provenance_level": "DRY_RUN" if args.dry_run else "MODEL_BOUND",
         "quarantine_enabled": bool(args.quarantine_dir),
         "runtime": {"temperature": args.temperature, "top_p": args.top_p,
-                    "num_ctx": args.num_ctx, "seed": args.seed},
+                    "num_ctx": args.num_ctx, "seed": args.seed,
+                    "num_predict": args.reserve_output_tokens},
         "source_sha256": p0_meta.get("source_sha256"),
+        "scope_sha256": p0_meta.get("scope_sha256"),
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "n_units": len(units), "n_ok": n_ok, "statuses": statuses,
         "note": "seed+temp0 verbessern die Wiederholbarkeit, garantieren sie nicht.",

@@ -7,7 +7,8 @@ GitHub release, or that release will not be archived.
 
 ## Preconditions (done)
 
-- Repository public, tests green (108/108), CI runs Ruff + tests + dry-smoke on
+- Repository public, tests green (117/117), CI runs Ruff + tests, semantic
+  canary lint/selftests/dry-run and dry-smoke on
   clean Python 3.12/3.13.
 - Name checked — no exact collision on PyPI/GitHub/Zenodo.
 - `CITATION.cff` (repository URL set; ORCID/DOI slots ready), `.zenodo.json`,
@@ -35,7 +36,7 @@ GitHub release, or that release will not be archived.
 In `CITATION.cff`, set the release facts:
 ```yaml
 version: "0.4.0"
-date-released: "2026-07-16"   # the actual release date
+date-released: "YYYY-MM-DD"   # beim tatsaechlichen Release setzen
 ```
 Confirm `.zenodo.json` carries the ORCID from Step 1. Commit and push.
 
@@ -57,8 +58,9 @@ DigQDA v0.4.0 — first archived pre-release.
 - P0 deterministic segmentation (SRT/TXT); P1 local coding via Ollama with a
   forced JSON schema and mode-specialised grammar; external quote/locator
   validation; fail-closed semantics and full run provenance.
-- Stable `digqda` entry point (doctor, pilot); synthetic smoke harness; 108/108
-  conformance checks; CI on Python 3.12/3.13.
+- Stable `digqda` entry point (doctor, pilot); synthetic smoke harness; 117/117
+  conformance checks; semantic canary v1.1.0 with 10/10 local Gemma 4 passes;
+  CI on Python 3.12/3.13.
 - Consumer-neutral Integration Contract; method-claim boundaries.
 Software only; contains no research data.
 ```

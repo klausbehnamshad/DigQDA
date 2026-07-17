@@ -6,7 +6,7 @@
   but is unverified.
 - **Python packages** (`requirements.txt`): `rapidfuzz` (≥3,<4), `jsonschema`
   (≥4.18,<5), `ollama` (≥0.3,<1).
-- **Ollama** with a local model (e.g. `gemma3:4b`) is required **only** for real
+- **Ollama** with a local model (default: `gemma4:e4b`) is required **only** for real
   model calls. Dry runs, the conformance suite, and most contract checks do not
   need a running model service.
 

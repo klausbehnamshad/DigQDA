@@ -72,7 +72,11 @@ runs P0 → P1 → external validation and evaluates the complete provenance gat
 ./digqda pilot CASE-001 /secure/path/interview.srt
 ```
 
-The default is `OPEN_DESCRIPTIVE` with local `gemma3:4b`; mode, codebook,
+For interviewee-only analysis, bind the transcript's explicit speaker labels to
+roles and filter before P1: `--role-map /secure/path/roles.json --include-role
+interviewee`. Unmapped or mixed speaker units fail closed.
+
+The default is `OPEN_DESCRIPTIVE` with local `gemma4:e4b`; mode, codebook,
 research question and model remain explicit method choices. Runtime artifacts
 go to `~/DigQDA-Pilot` by default and never into the Git repository. See
 [`90_UTILITIES/pilot/README_PILOT.md`](90_UTILITIES/pilot/README_PILOT.md).
@@ -95,11 +99,10 @@ artifacts stay under the ignored `90_UTILITIES/smoke/out/` directory. See
 the exit-code and review contract. Do not substitute real transcripts for the
 synthetic fixtures.
 
-The first recorded local compatibility result is
-[`gemma3:4b` via Ollama](docs/MODEL_COMPATIBILITY.md): both OPEN and STRICT
-completed with model-bound provenance and external validator `PASS` on the
-synthetic fixture. This is a plumbing/conformance result, not a claim of
-general analytic quality.
+The current pilot target is
+[`gemma4:e4b` via Ollama](docs/MODEL_COMPATIBILITY.md). Compatibility evidence
+is model-specific and records technical smoke and semantic canary results
+separately; neither result removes human review.
 Tested model/backend combinations are limited to those recorded in
 `docs/MODEL_COMPATIBILITY.md`; other local models are unverified, and DigQDA does
 not claim model agnosticism.
