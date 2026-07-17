@@ -108,7 +108,9 @@ def run_p1(*extra):
 
 
 def rendered_prompt_example(prompt):
-    return json.loads(prompt.split("Ausgabe:\n", 1)[1].split("\n\nZUR ERINNERUNG", 1)[0])
+    payload = prompt.split("Ausgabe:\n", 1)[1].lstrip()
+    example, _ = json.JSONDecoder().raw_decode(payload)
+    return example
 
 
 m, rc = run_p1("--num-ctx", "8192")
@@ -118,6 +120,8 @@ check("Manifest: contract/schema/prompt/library/claim + Hashes",
       all(k in m for k in ("contract_version", "contract_sha256", "schema_sha256",
                            "grammar_sha256", "prompt_sha256", "library_version",
                            "allowed_method_claim")))
+check("Ollama-Ausgabelimit ist im Runtime-Manifest gebunden",
+      m["runtime"]["num_predict"] == 2048)
 
 print("T6  Runner fail-closed bei Budget")
 m2, rc2 = run_p1("--num-ctx", "300", "--reserve-output-tokens", "100")
@@ -149,22 +153,17 @@ rendered_ex_cb = R.build_prompt(
     {"unit_id": "S01", "source_text": "Test"},
 )
 rendered_ex_obj = rendered_prompt_example(rendered_ex_cb)
-rendered_ex_code = rendered_ex_obj["descriptive_codes"][0]
 check(
-    "CODEBOOK-Beispiel wird an das gebundene Codebuch gerendert",
-    rendered_ex_code["code_label"] == "Gartenarbeit"
-    and rendered_ex_code["definition"] == "beschreibt konkrete Tätigkeiten im Garten"
-    and R.validate_mode(
-        rendered_ex_obj,
-        "STRICT_CODEBOOK",
-        ["Gartenarbeit", "positive Bewertung"],
-    ) is None,
+    "CODEBOOK-Beispiel demonstriert einen legalen Nichttreffer",
+    rendered_ex_obj["coding_decision"] == "NO_CODE_FITS"
+    and rendered_ex_obj["descriptive_codes"] == []
+    and R.validate_mode(rendered_ex_obj, "STRICT_CODEBOOK",
+                        ["Gartenarbeit", "positive Bewertung"]) is None,
     rendered_ex_obj,
 )
 check(
-    "dynamische Beispielquelle bindet das Beispielzitat zeichengetreu",
-    f'text: {json.dumps(rendered_ex_code["source_quote"], ensure_ascii=False)}'
-    in rendered_ex_cb
+    "CODEBOOK-Nichttrefferquelle ist im gerenderten Beispiel sichtbar",
+    "keine der gebundenen Codebuchdefinitionen erfuellt" in rendered_ex_cb
     and "__BOUND_CODEBOOK" not in rendered_ex_cb,
 )
 
@@ -206,17 +205,33 @@ check("kein allOf/if/then", not any(k in g for k in ("allOf", "if", "then")))
 check("kein minLength/minItems", "minLength" not in gs and "minItems" not in gs)
 check("enum/additionalProperties bleiben", '"enum"' in gs and "additionalProperties" in gs)
 strict_g = R.grammar_schema_for_mode(schema, "STRICT_CODEBOOK", ["Beta", "Alpha"])
-strict_code_props = strict_g["properties"]["descriptive_codes"]["items"]["properties"]
+strict_branches = strict_g["oneOf"]
+strict_decisions = [b["properties"]["coding_decision"]["const"] for b in strict_branches]
+strict_code_branch = next(
+    b for b in strict_branches
+    if b["properties"]["coding_decision"]["const"] == "CODES_ASSIGNED"
+)
+strict_code_props = strict_code_branch["properties"]["descriptive_codes"]["items"]["properties"]
 check("STRICT-Grammatik erlaubt nur gebundene Codebuchlabels",
       strict_code_props["code_label"]["enum"] == ["Beta", "Alpha"]
       and strict_code_props["status"]["enum"]
       == ["CODEBOOK_APPLIED", "CODEBOOK_AMBIGUOUS"])
+check("STRICT-Grammatik koppelt Decision und Code-Anzahl",
+      strict_decisions == ["CODES_ASSIGNED", "NO_CODE_FITS", "NOTHING_CODABLE"]
+      and strict_code_branch["properties"]["descriptive_codes"]["minItems"] == 1
+      and all(b["properties"]["descriptive_codes"].get("maxItems") == 0
+              for b in strict_branches if b is not strict_code_branch))
 open_g = R.grammar_schema_for_mode(schema, "OPEN_DESCRIPTIVE")
-open_props = open_g["properties"]
+open_branches = open_g["oneOf"]
+open_decisions = [b["properties"]["coding_decision"]["const"] for b in open_branches]
+open_code_branch = open_branches[0]
+open_props = open_code_branch["properties"]
 check("OPEN-Grammatik schliesst Codebuchstatus und NO_CODE_FITS strukturell aus",
-      open_props["coding_decision"]["enum"] == ["CODES_ASSIGNED", "NOTHING_CODABLE"]
+      open_decisions == ["CODES_ASSIGNED", "NOTHING_CODABLE"]
       and open_props["descriptive_codes"]["items"]["properties"]["status"]["enum"]
-      == ["INDUCTIVE_CANDIDATE"])
+      == ["INDUCTIVE_CANDIDATE"]
+      and open_code_branch["properties"]["descriptive_codes"]["minItems"] == 1
+      and open_branches[1]["properties"]["descriptive_codes"]["maxItems"] == 0)
 
 print("T12  Hash-Konsistenz")
 _, _ = validate("bound_srt.json")
@@ -307,9 +322,8 @@ check("Modus rendert genau sein Beispiel",
       rendered_prompt_example(rendered_open)["coding_decision"] == "CODES_ASSIGNED"
       and rendered_prompt_example(rendered_open)["descriptive_codes"][0]["status"]
       == "INDUCTIVE_CANDIDATE"
-      and rendered_prompt_example(rendered_cb)["coding_decision"] == "CODES_ASSIGNED"
-      and rendered_prompt_example(rendered_cb)["descriptive_codes"][0]["code_label"]
-      == "Familienbindung")
+      and rendered_prompt_example(rendered_cb)["coding_decision"] == "NO_CODE_FITS"
+      and rendered_prompt_example(rendered_cb)["descriptive_codes"] == [])
 check("gerenderter Prompt enthaelt keine Contract-Marker", "[[" not in rendered_open and "[[" not in rendered_cb)
 
 print("T25  Phase2 P0-Envelope ist zwingend ein schema-validiertes Objekt")
@@ -472,7 +486,7 @@ with tempfile.TemporaryDirectory() as pilot_root:
           D.evaluate_gate(
               seg_pilot, coding_pilot, validation_pilot,
               runner_exit=0, validator_exit=2,
-              requested_model="gemma3:4b", requested_mode="OPEN_DESCRIPTIVE",
+              requested_model="gemma4:e4b", requested_mode="OPEN_DESCRIPTIVE",
               research_question="", codebook_bytes=None,
               dry_run=True,
           )[0])
@@ -482,7 +496,7 @@ with tempfile.TemporaryDirectory() as pilot_root:
           not D.evaluate_gate(
               seg_pilot, tampered, validation_pilot,
               runner_exit=0, validator_exit=2,
-              requested_model="gemma3:4b", requested_mode="OPEN_DESCRIPTIVE",
+              requested_model="gemma4:e4b", requested_mode="OPEN_DESCRIPTIVE",
               research_question="", codebook_bytes=None,
               dry_run=True,
           )[0])
@@ -518,6 +532,56 @@ _rendered34 = R.build_prompt(_pt34, "", "OPEN_DESCRIPTIVE", None, {},
 _src34 = _rendered34.split("text:", 1)[1].split("Ausgabe:", 1)[0]
 check("OPEN: Beispiel-Quelltext deckt jedes Beispiel-Zitat (kein Quelle/JSON-Drift)",
       all(c["source_quote"] in _src34 for c in _open_ex34["descriptive_codes"]), _src34)
+
+print("T35  Prompt-Entscheidungsgates gegen semantische Canary-Fehler")
+_strict35 = R.build_prompt(
+    _pt34, "", "STRICT_CODEBOOK", ["Gartenarbeit"],
+    {"Gartenarbeit": "konkrete Taetigkeiten im Garten"},
+    {"unit_id": "S01", "source_text": "Vom Fenster sieht man den Garten."},
+)
+_open35 = R.build_prompt(
+    _pt34, "", "OPEN_DESCRIPTIVE", None, {},
+    {"unit_id": "S01", "source_text": "Ist das Mikrofon an?"},
+)
+check("STRICT: vollstaendige Definition hat Vorrang vor Wortnaehe",
+      "VOLLSTAENDIGE DEFINITION" in _strict35
+      and "Ein Labelwort im Text ist kein Treffer" in _strict35
+      and "NO_CODE_FITS" in _strict35)
+check("STRICT: Grenzfall verlangt Ambiguitaet plus uncertainty",
+      "CODEBOOK_AMBIGUOUS plus" in _strict35 and "uncertainty" in _strict35)
+check("STRICT: inhaltlicher Nichttreffer ist nicht NOTHING_CODABLE",
+      "NO_CODE_FITS und nicht" in _strict35
+      and "NOTHING_CODABLE ist nur fuer Einheiten ohne" in _strict35)
+check("OPEN: Technik-/Organisationsgespraech ist NOTHING_CODABLE",
+      "Technik-/Organisationsgespraech" in _open35
+      and '"coding_decision": "NOTHING_CODABLE"' in _open35
+      and '"descriptive_codes": []' in _open35)
+
+print("T36  Pilot-Rollen-Scope ist explizit und fail-closed")
+_scope_input = {
+    "meta": {"source_type": "srt", "source_sha256": "a" * 64, "n_units": 2},
+    "source_units": [
+        {"unit_id": "S01", "explicit_speaker": "I", "source_text": "Frage"},
+        {"unit_id": "S02", "explicit_speaker": "B", "source_text": "Antwort"},
+    ],
+}
+_scoped36, _excluded36 = D.apply_role_scope(
+    _scope_input, {"I": "interviewer", "B": "interviewee"}, ["interviewee"]
+)
+check("nur eingeschlossene Rollen gehen an P1",
+      [u["unit_id"] for u in _scoped36["source_units"]] == ["S02"]
+      and _excluded36 == ["S01"])
+check("Scope-Konfiguration ist gehasht und Unitzahl aktualisiert",
+      _scoped36["meta"]["n_units"] == 1
+      and len(_scoped36["meta"]["scope_sha256"]) == 64
+      and set(_scoped36["meta"]["scope_sha256"]) <= set("0123456789abcdef"))
+try:
+    D.apply_role_scope(_scope_input, {"B": "interviewee"}, ["interviewee"])
+except D.WorkflowError:
+    _unknown36 = True
+else:
+    _unknown36 = False
+check("unbekannte Sprecher werden nicht still eingeschlossen", _unknown36)
 
 os.remove(units_file)
 print(f"\n{'='*48}\n  {PASS} PASS  /  {FAIL} FAIL\n{'='*48}")

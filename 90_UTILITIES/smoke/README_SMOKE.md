@@ -47,8 +47,11 @@ DRY=1 bash 90_UTILITIES/smoke/run_smoke.sh
 Der echte synthetische Lauf verwendet den exakten Modell-Tag aus `ollama list`:
 
 ```bash
-MODEL=gemma3:4b bash 90_UTILITIES/smoke/run_smoke.sh
+MODEL=gemma4:e4b bash 90_UTILITIES/smoke/run_smoke.sh
 ```
+
+Mit `OUT=/privater/pfad` kann ein separater Artefaktordner gesetzt werden, etwa
+damit ein `DRY=1`-Lauf den letzten echten Modellnachweis nicht überschreibt.
 
 Falls der installierte Tag anders lautet, wird ausschließlich der Wert hinter
 `MODEL=` ersetzt. Der Preflight lehnt einen unbekannten Tag vor dem ersten

@@ -6,13 +6,14 @@
 # The script intentionally keeps running after a scenario finding so both modes
 # are diagnosed, then returns a fail-closed aggregate exit code.
 #
-#   Real model:  MODEL=gemma3:4b bash 90_UTILITIES/smoke/run_smoke.sh
+#   Real model:  MODEL=gemma4:e4b bash 90_UTILITIES/smoke/run_smoke.sh
 #   Plumbing:    DRY=1 bash 90_UTILITIES/smoke/run_smoke.sh
 #
 # Environment:
-#   MODEL   exact installed Ollama tag (default: gemma3:4b)
+#   MODEL   exact installed Ollama tag (default: gemma4:e4b)
 #   PYTHON  Python interpreter path (default: python3)
 #   DRY     1 = exercise plumbing without calling a model
+#   OUT     artifact directory (default: 90_UTILITIES/smoke/out)
 # =============================================================================
 set -uo pipefail
 
@@ -23,8 +24,8 @@ SCHEMA="$REPO/10_GENERIC/p1_schema.json"
 SRT="$HERE/fixtures/interview_demo.srt"
 TXT="$HERE/fixtures/interview_demo.txt"
 CB="$HERE/fixtures/codebook_demo.json"
-OUT="$HERE/out"
-MODEL="${MODEL:-gemma3:4b}"
+OUT="${OUT:-$HERE/out}"
+MODEL="${MODEL:-gemma4:e4b}"
 PY="${PYTHON:-python3}"
 DRY="${DRY:-0}"
 SUM="$OUT/SMOKE_SUMMARY.txt"

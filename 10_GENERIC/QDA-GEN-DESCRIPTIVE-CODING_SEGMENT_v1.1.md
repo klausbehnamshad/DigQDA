@@ -1,5 +1,10 @@
 # QDA-GEN-DESCRIPTIVE-CODING (SOURCE UNIT) v1.1 — DRAFT
 
+> Runtime-Hinweis: Die einzige kanonische Ausfuehrungsquelle ist
+> `10_GENERIC/p1_prompt.txt`, aktuell Prompt-Version 1.2. Der Copy-paste-Block in
+> diesem v1.1-Methodendokument bleibt historische Spezifikation und darf nicht
+> als Runtime-Fallback verwendet werden.
+
 ```text
 PROMPT_ID: QDA-GEN-DESCRIPTIVE-CODING
 VERSION: 1.1
