@@ -3,9 +3,14 @@
   "upload_type": "software",
   "access_right": "open",
   "license": "MIT",
+  "language": "eng",
   "description": "An open, versioned method-contract toolkit for evidence-bound qualitative data analysis (QDA) with local language models. The model proposes; deterministic code verifies. Human-in-the-loop analytic operations with an explicit method claim, a strict output schema, external quote/locator validation, and fail-closed semantics. This record archives a tagged source release; it contains software and no research data.",
   "creators": [
-    { "name": "Behnamshad, Klaus" }
+    {
+      "name": "Behnam Shad, Klaus",
+      "affiliation": "Luxembourg Centre for Contemporary and Digital History (C2DH), University of Luxembourg",
+      "orcid": "0000-0002-3601-9024"
+    }
   ],
   "keywords": [
     "qualitative data analysis",
